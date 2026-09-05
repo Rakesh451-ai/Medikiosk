@@ -1,142 +1,122 @@
-# MediKiosk - Smart Mobile Healthcare Kiosk & Patient Portal
+# MediKiosk Monorepo
 
-MediKiosk is a modern, responsive, mobile-first patient healthcare portal built with **React (Vite + Tailwind CSS)** and a robust **Django + Django REST Framework (DRF)** backend.
+> **Next-Generation AI Clinical Outpatient Check-In & Decision Support Monorepo**
 
-Designed from the 4 medical kiosk UI design mockups (`LoginScreen`, `DocScanner`, `MedicalSummary`, and `AgentWindow`), MediKiosk has been modernized for mobile touch interactions with a clean, intuitive interface and real-time backend synchronization.
+MediKiosk automates outpatient intake through an accessible, multimodal patient kiosk UI (voice/touch, low-literacy friendly, multilingual) paired with an asynchronous backend pipeline and a dense, scannable physician review dashboard.
 
 ---
 
-## 🌟 Modern Architecture Overview
+## Architecture & Clinical Journey
 
 ```
-                          ┌──────────────────────────┐
-                          │   React (Vite + Tailwind)│
-                          │   Mobile & Kiosk UI      │
-                          │   Port 5173              │
-                          └─────────────┬────────────┘
-                                        │  /api proxy
-                                        ▼
-                          ┌──────────────────────────┐
-                          │  Django REST Framework   │
-                          │  RESTful API             │
-                          │  Port 8000               │
-                          └─────────────┬────────────┘
-                                        │
-                         ┌──────────────┴──────────────┐
-                         ▼                             ▼
-                 SQLite3 Database             Clinical AI & OCR Engine
+[ 1. Patient ] ──► [ 2. Identify ] ──► [ 3. Converse ] ──► [ 4. Scan ] ──► [ 5. Summarize ] ──► [ 6. Consult ]
+  Arrival at       ABHA Scan /         Module A: AI         Module B:        Module C: AI          Doctor Review
+  Hospital         Phone Number        History Engine       OCR Pipeline     Structured Draft      & Final Care
+  OPD Kiosk        & Consent           (SOCRATES + AYUSH)   (Celery/Async)   (HPI, Meds, Vitals)   Dashboard
+```
+
+For in-depth architectural and design documentation, see:
+- [Architecture & Workflow Pipeline](docs/architecture.md)
+- [API Contracts & Schemas](docs/api-contracts.md)
+- [Data Model & Entity Relationships](docs/data-model.md)
+
+---
+
+## Monorepo Layout
+
+```
+MediKiosk/
+├── backend/                  # Django project (medikiosk_core) with DRF & SimpleJWT
+│   ├── accounts/             # Custom User (PATIENT, DOCTOR, TRIAGE_STAFF, ADMIN), Profiles & Auth
+│   ├── intake/               # Module A: Multimodal conversational history engine (SOCRATES + AYUSH)
+│   ├── documents/            # Module B: OCR processing & prescription digitization (Celery async)
+│   ├── summary/              # Module C: Structured clinical history generator
+│   ├── consent/              # Module D: ABDM privacy consent & mock FHIR bundles
+│   ├── triage/               # Red-flag detection & clinical alerts queue
+│   └── medikiosk_core/       # Settings, Celery app config, root URLs, fixtures
+├── frontend/                 # Vite + React 18 + Tailwind CSS
+│   ├── src/
+│   │   ├── pages/kiosk/      # /kiosk: IdentifyScreen, ConverseScreen, KioskView
+│   │   ├── pages/doctor/     # /doctor: DoctorDashboard, DoctorLogin
+│   │   ├── services/api.js   # Centralized API service layer
+│   │   └── styles/           # design-tokens.js (shared design system)
+├── docs/                     # Specifications: architecture.md, api-contracts.md, data-model.md
+├── docker-compose.yml        # Multi-container orchestration (Postgres, Redis, Backend, Worker, Frontend)
+├── .env.example              # Environment template
+└── README.md
 ```
 
 ---
 
-## 📱 Mobile-First Screens & Features
+## Quickstart Guide
 
-### 1. 🔐 Modernized Mobile Login (`LoginScreen`)
-- Clean, tactile login screen honoring `#cbf5d6` mint green and `#297006` pill badge styling.
-- **1-Tap Demo Check-In** (Sarah Jenkins, MK-78294).
-- Patient ID login and new patient registration form connected to Django `/api/auth/signup/`.
+### Option 1: Run with Docker Compose (Recommended)
 
-### 2. 📊 Medical Summary & Patient Dashboard (`MedicalSummary`)
-- Prominent **"Medical Summary"** green badge matching the design mockup.
-- **Live Kiosk Vitals:** Pulse, BP, SpO2, Temperature, Blood Sugar (synchronized with Django `/api/patient/vitals/`).
-- **Interactive Daily Prescription Tracker:** Toggle medications as taken with instant backend persistence (`/api/medications/<id>/toggle/`).
-- **Clinical AI Assistant Insights:** Summarizes active conditions, recent tests, and pending follow-ups.
-- Print Patient Chart & Export summary report.
+Spins up PostgreSQL 16, Redis 7, Django REST Framework, Celery Background Worker, and Vite React Dev Server:
 
-### 3. 📄 Optical Document Scanner (`DocScanner`)
-- Indigo blue (`#3f51b5`) optical camera viewfinder with animated laser scanning beam (`.laser-line`).
-- **Dual Mode:** Live optical scan viewfinder + drag-and-drop file upload.
-- **Preset Clinical Test Documents:**
-  1. *Clinical Prescription (Dr. Michael Chen, Amoxicillin 500mg, Levocetirizine)*
-  2. *Metabolic & Lipid Blood Panel (BioPath Labs)*
-  3. *Digital Chest Radiography PA View (Clear lung fields)*
-- **Live OCR Extraction:** Sends document payloads to Django `/api/documents/scan/` which automatically parses diagnoses, medications, and runs allergy contraindication checks!
-
-### 4. 🤖 AI Clinical Health Agent (`AgentWindow`)
-- Top royal blue header (`#3f51b5`) with orange status icons.
-- Bottom royal blue input pill bar with Speech Recognition microphone (Web Speech API) and text input.
-- **Intelligent Clinical Evaluation Engine:** Powered by Django `/api/agent/chat/`.
-  - **Allergy Contraindication Alert:** Automatically flags that Sarah has a Penicillin allergy and warns against taking Amoxicillin!
-  - Lab test interpretation (cholesterol, glucose, hemoglobin).
-  - Resting vitals triage.
-  - Text-to-Speech (TTS) voice readouts.
-
-### 5. 📁 Medical Records Timeline (`MobileRecords`)
-- Chronological timeline of scanned prescriptions and lab reports fetched from Django `/api/documents/`.
-- Category filtering: Prescriptions, Lab Reports, Radiology.
-- Clinical OCR inspection modal.
-
----
-
-## 🚀 Running the Full Stack
-
-### 1. Start the Django REST Framework Backend
 ```bash
-# From repository root
-python3 backend/manage.py migrate
-python3 backend/manage.py runserver 0.0.0.0:8000
-```
-API endpoints available at `http://localhost:8000/api/`
+# 1. Clone & copy environment
+cp .env.example .env
 
-### 2. Start the React Frontend
+# 2. Build and launch all 5 containers
+docker compose up --build
+```
+
+- **Frontend (Kiosk & Doctor UI):** `http://localhost:5173`
+- **Backend DRF API:** `http://localhost:8000/api/`
+- **Health Check:** `http://localhost:8000/api/health/`
+
+---
+
+### Option 2: Run Bare-Metal Locally
+
+#### Backend Setup:
 ```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Run migrations & seed data (with SQLite fallback if Postgres is not running)
+USE_SQLITE=True python manage.py migrate
+USE_SQLITE=True python manage.py seed_data
+
+# Run Django development server
+USE_SQLITE=True python manage.py runserver 0.0.0.0:8000
+```
+
+#### Frontend Setup:
+```bash
+cd frontend
 npm install
 npm run dev
 ```
-Frontend available at `http://localhost:5173/` (proxies `/api` directly to Django)
 
 ---
 
-## 📡 Django REST API Endpoints
+## Pre-Loaded Demo Accounts & Test Credentials
 
-| Endpoint | Method | Description |
-| :--- | :---: | :--- |
-| `/api/health/` | `GET` | Health check, server uptime, database records count |
-| `/api/auth/login/` | `POST` | Authenticate patient session |
-| `/api/auth/signup/` | `POST` | Register new patient & create digital chart |
-| `/api/patient/` | `GET` | Fetch active patient profile, allergies & latest vitals |
-| `/api/patient/vitals/` | `POST/PUT` | Record new vital sign measurements |
-| `/api/documents/` | `GET` | List all scanned documents & prescriptions |
-| `/api/documents/scan/` | `POST` | Optical scan / upload document with automated OCR extraction |
-| `/api/medications/` | `GET/POST` | List active prescriptions or add new medication |
-| `/api/medications/<id>/toggle/` | `POST` | Mark dose as taken today |
-| `/api/agent/chat/` | `GET/POST` | Conversational Medical AI Agent with allergy & triage evaluation |
+| Role | Username | Password | Full Name / Profile |
+| :--- | :--- | :--- | :--- |
+| **Doctor** | `dr_sharma` | `DoctorPass123!` | Dr. Rajesh Sharma, MD (General Medicine, Room 3) |
+| **Doctor** | `dr_sen` | `DoctorPass123!` | Dr. Ananya Sen (Pulmonology, Room 7) |
+| **Triage Staff**| `nurse_priya`| `StaffPass123!` | Nurse Priya Nair (Kiosk Station 01) |
+| **Patient** | `sarah_jenkins`| `PatientPass123!` | Sarah Jenkins (ABHA: `14-8921-3490-1284`) |
+| **Patient** | `ramesh_patel` | `PatientPass123!` | Ramesh Patel (ABHA: `14-4512-8809-3321`) |
+| **Admin** | `admin` | `AdminPass123!` | System Administrator |
 
 ---
 
-## 📁 Project Directory Structure
-```
-Medikiosk/
-├── backend/
-│   ├── api/
-│   │   ├── migrations/
-│   │   ├── models.py         # Patient, Vitals, MedicalDocument, Medication, ChatMessage
-│   │   ├── serializers.py    # DRF Serializers
-│   │   ├── views.py          # REST endpoints & AI Clinical Logic
-│   │   └── urls.py           # API Route mappings
-│   ├── medikiosk_backend/
-│   │   ├── settings.py       # Django configuration (CORS, DRF, Apps)
-│   │   └── urls.py           # Root URL configuration
-│   └── manage.py
-├── src/
-│   ├── components/
-│   │   └── mobile/
-│   │       ├── MobileStatusBar.jsx    # iOS/Android dynamic status bar
-│   │       ├── MobileNavBar.jsx       # Bottom tab bar (Summary, Scan, Agent, Records)
-│   │       ├── MobileLogin.jsx        # Screen 1: Modern Mobile Login
-│   │       ├── MobileSummary.jsx      # Screen 3: Medical Summary & Vitals
-│   │       ├── MobileScanner.jsx      # Screen 2: Optical Doc Scanner & OCR
-│   │       ├── MobileAgent.jsx        # Screen 4: AI Doctor Voice & Chat
-│   │       ├── MobileRecords.jsx      # Records timeline & OCR detail modal
-│   │       └── MobileAppContainer.jsx # Smartphone hardware frame & mode switcher
-│   ├── services/
-│   │   └── api.js                     # Django API client service
-│   ├── App.jsx                        # Root React application
-│   ├── index.css                      # Tailwind & animations
-│   └── main.jsx
-├── public/reference/                  # 4 original mockup PNGs for 1:1 comparison
-├── index.html
-├── package.json
-├── tailwind.config.js
-└── vite.config.js                     # Configured with Django /api proxy
+## Running Test Suites
+
+Run the comprehensive Django REST Framework test suites for accounts and Module A intake:
+
+```bash
+cd backend
+
+# Test accounts app (User roles, JWT auth, profile models, clinical permission classes)
+USE_SQLITE=True python manage.py test accounts
+
+# Test intake app (Module A SOCRATES engine, red-flag signals, AYUSH branch)
+USE_SQLITE=True python manage.py test intake
 ```

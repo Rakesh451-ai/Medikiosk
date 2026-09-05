@@ -1,0 +1,339 @@
+[
+{
+  "model": "accounts.userprofile",
+  "pk": 1,
+  "fields": {
+    "user": 1,
+    "role": "DOCTOR",
+    "patient_id": "DOC-1049",
+    "abha_id": null,
+    "phone_number": "+91-9876543210",
+    "date_of_birth": null,
+    "gender": null,
+    "preferred_language": "en"
+  }
+},
+{
+  "model": "accounts.userprofile",
+  "pk": 2,
+  "fields": {
+    "user": 2,
+    "role": "PATIENT",
+    "patient_id": "MK-78294",
+    "abha_id": "14-8921-3490-1284",
+    "phone_number": "+91-9123456780",
+    "date_of_birth": "1988-04-12",
+    "gender": "Female",
+    "preferred_language": "en"
+  }
+},
+{
+  "model": "intake.intakesession",
+  "pk": 1,
+  "fields": {
+    "session_id": "intake-session-001",
+    "patient": 2,
+    "patient_identifier": "MK-78294",
+    "chief_complaint": "Severe productive cough, low-grade fever, and mild shortness of breath for 5 days",
+    "language": "en",
+    "mode": "HYBRID",
+    "status": "COMPLETED",
+    "created_at": "2026-09-05T13:47:03.860Z",
+    "updated_at": "2026-09-05T13:47:03.860Z"
+  }
+},
+{
+  "model": "intake.conversationturn",
+  "pk": 1,
+  "fields": {
+    "session": 1,
+    "speaker": "AI",
+    "text": "Namaste and welcome to MediKiosk. What health problem brings you to the hospital today?",
+    "audio_url": null,
+    "entities_extracted": {
+      "intent": "GREETING_INTAKE"
+    },
+    "created_at": "2026-09-05T13:47:03.944Z"
+  }
+},
+{
+  "model": "intake.conversationturn",
+  "pk": 2,
+  "fields": {
+    "session": 1,
+    "speaker": "PATIENT",
+    "text": "I have had a bad cough for the last 5 days, and since yesterday I've got fever and feel a bit breathless when climbing stairs.",
+    "audio_url": null,
+    "entities_extracted": {
+      "symptoms": [
+        "cough",
+        "fever",
+        "dyspnea"
+      ],
+      "duration": "5 days"
+    },
+    "created_at": "2026-09-05T13:47:04.052Z"
+  }
+},
+{
+  "model": "intake.conversationturn",
+  "pk": 3,
+  "fields": {
+    "session": 1,
+    "speaker": "AI",
+    "text": "I understand. Is your cough dry or producing sputum (phlegm)? Any chest pain or wheezing?",
+    "audio_url": null,
+    "entities_extracted": {
+      "intent": "SYMPTOM_CLARIFICATION"
+    },
+    "created_at": "2026-09-05T13:47:04.143Z"
+  }
+},
+{
+  "model": "intake.conversationturn",
+  "pk": 4,
+  "fields": {
+    "session": 1,
+    "speaker": "PATIENT",
+    "text": "It is bringing up greenish-yellow phlegm. No chest pain, but I feel tightness.",
+    "audio_url": null,
+    "entities_extracted": {
+      "symptom_detail": "productive_cough_purulent",
+      "sputum": "greenish-yellow"
+    },
+    "created_at": "2026-09-05T13:47:04.235Z"
+  }
+},
+{
+  "model": "intake.conversationturn",
+  "pk": 5,
+  "fields": {
+    "session": 1,
+    "speaker": "AI",
+    "text": "Thank you. Do you have any known medical conditions or allergies to medicines?",
+    "audio_url": null,
+    "entities_extracted": {
+      "intent": "ALLERGY_HISTORY_CHECK"
+    },
+    "created_at": "2026-09-05T13:47:04.352Z"
+  }
+},
+{
+  "model": "intake.conversationturn",
+  "pk": 6,
+  "fields": {
+    "session": 1,
+    "speaker": "PATIENT",
+    "text": "Yes, I am severely allergic to Penicillin. I broke out in severe hives and facial swelling once.",
+    "audio_url": null,
+    "entities_extracted": {
+      "allergy": "Penicillin",
+      "reaction": "hives, facial swelling, anaphylaxis risk"
+    },
+    "created_at": "2026-09-05T13:47:04.435Z"
+  }
+},
+{
+  "model": "documents.medicaldocument",
+  "pk": 1,
+  "fields": {
+    "doc_id": "DOC-SCAN-8891",
+    "patient": 2,
+    "patient_identifier": "MK-78294",
+    "session": 1,
+    "title": "City Clinic Prior Prescription (Dr. Mehta)",
+    "file": "",
+    "file_url": "/media/documents/sample_rx_8891.pdf",
+    "doc_type": "PRESCRIPTION",
+    "ocr_status": "COMPLETED",
+    "celery_task_id": "celery-ocr-mock-uuid-8891",
+    "raw_text": "CITY CLINIC HEALTHCARE\nPatient: Sarah Jenkins | Age: 38F\nRx:\n1. Tab Augmentin 625mg (Amoxicillin + Clavulanate) - 1 tab TDS x 5 days\n2. Tab Paracetamol 650mg - SOS fever\n3. Syp Ascoril-D 10ml TDS",
+    "extracted_entities": {
+      "medications": [
+        {
+          "name": "Augmentin 625mg",
+          "active_ingredients": [
+            "Amoxicillin",
+            "Clavulanic Acid"
+          ],
+          "frequency": "1 TDS",
+          "days": 5
+        },
+        {
+          "name": "Paracetamol 650mg",
+          "frequency": "SOS",
+          "indication": "fever"
+        },
+        {
+          "name": "Ascoril-D Cough Syrup",
+          "dosage": "10ml",
+          "frequency": "TDS"
+        }
+      ],
+      "prescribing_doctor": "Dr. Mehta",
+      "clinic_name": "City Clinic Healthcare"
+    },
+    "uploaded_at": "2026-09-05T13:47:04.525Z"
+  }
+},
+{
+  "model": "summary.clinicalsummary",
+  "pk": 1,
+  "fields": {
+    "summary_id": "summary-001",
+    "patient": 2,
+    "patient_identifier": "MK-78294",
+    "session": 1,
+    "status": "READY",
+    "chief_complaints": [
+      "Productive cough with purulent greenish sputum x 5 days",
+      "Fever (intermittent, documented up to 101.4 F)",
+      "Exertional shortness of breath when walking or climbing stairs"
+    ],
+    "history_of_present_illness": "Patient is a 38-year-old female presenting with 5 days of worsening productive cough with greenish-yellow phlegm. Reports low-grade to moderate fever (101.4 F) managed with OTC paracetamol. Noticed shortness of breath upon mild exertion over the last 24 hours. Was prescribed Augmentin 625mg at another clinic yesterday but has NOT started taking it yet.",
+    "past_medical_history": [
+      "Mild childhood bronchial asthma (inactive)",
+      "No hypertension or diabetes mellitus"
+    ],
+    "current_medications": [
+      {
+        "name": "Paracetamol 650mg",
+        "dosage": "1 tab PRN",
+        "adherence": "Occasional"
+      },
+      {
+        "name": "Prescribed Augmentin 625mg",
+        "status": "HOLD / CONTRAINDICATED (Penicillin class)"
+      }
+    ],
+    "allergies": [
+      {
+        "substance": "Penicillin & Beta-lactams",
+        "reaction": "Severe urticaria & facial edema (anaphylactoid)",
+        "severity": "CRITICAL"
+      }
+    ],
+    "vitals": {
+      "bp": "118/76 mmHg",
+      "pulse": "104 bpm (mild tachycardia)",
+      "temp": "101.2 F",
+      "spo2": "95% on room air",
+      "resp_rate": "21 /min"
+    },
+    "doctor_notes": "Pending physical chest auscultation. Flagged: Contraindicated antibiotic prescriber alert active.",
+    "created_at": "2026-09-05T13:47:04.621Z",
+    "updated_at": "2026-09-05T13:47:04.621Z"
+  }
+},
+{
+  "model": "triage.triagealert",
+  "pk": 1,
+  "fields": {
+    "alert_id": "alert-001",
+    "patient": 2,
+    "patient_identifier": "MK-78294",
+    "session": 1,
+    "severity": "CRITICAL",
+    "category": "DRUG_CONTRAINDICATION",
+    "trigger_reason": "Prescribed Augmentin (Amoxicillin) with documented PENICILLIN ANAPHYLAXIS allergy.",
+    "description": "Scanned prescription contains Amoxicillin+Clavulanate. Patient reported severe allergic hives and facial swelling to Penicillin during intake.",
+    "vitals_snapshot": {
+      "pulse": "104 bpm",
+      "spo2": "95%",
+      "temp": "101.2 F"
+    },
+    "is_resolved": false,
+    "resolved_by": null,
+    "created_at": "2026-09-05T13:47:04.720Z"
+  }
+},
+{
+  "model": "consent.consentartifact",
+  "pk": 1,
+  "fields": {
+    "consent_id": "consent-001",
+    "patient": 2,
+    "patient_identifier": "MK-78294",
+    "purpose": "CARE_CONSULTATION",
+    "status": "GRANTED",
+    "hip_id": "IN-HOSP-001",
+    "hiu_id": "IN-HIU-MEDIKIOSK",
+    "fhir_resource_type": "Bundle/Composition",
+    "mock_fhir_bundle": {
+      "resourceType": "Bundle",
+      "type": "document",
+      "timestamp": "2026-09-05T13:47:04.802702+00:00",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "Composition",
+            "id": "comp-mk-001",
+            "status": "preliminary",
+            "type": {
+              "coding": [
+                {
+                  "system": "http://loinc.org",
+                  "code": "34117-2",
+                  "display": "Outpatient Consultation Note"
+                }
+              ]
+            },
+            "subject": {
+              "reference": "Patient/MK-78294",
+              "display": "Sarah Jenkins"
+            },
+            "author": [
+              {
+                "reference": "Practitioner/DOC-1049",
+                "display": "Dr. Rajesh Sharma"
+              }
+            ]
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "Patient",
+            "id": "MK-78294",
+            "name": [
+              {
+                "use": "official",
+                "text": "Sarah Jenkins"
+              }
+            ],
+            "gender": "female",
+            "birthDate": "1988-04-12"
+          }
+        },
+        {
+          "resource": {
+            "resourceType": "AllergyIntolerance",
+            "clinicalStatus": {
+              "coding": [
+                {
+                  "code": "active"
+                }
+              ]
+            },
+            "verificationStatus": {
+              "coding": [
+                {
+                  "code": "confirmed"
+                }
+              ]
+            },
+            "criticality": "high",
+            "code": {
+              "text": "Penicillin"
+            },
+            "patient": {
+              "reference": "Patient/MK-78294"
+            }
+          }
+        }
+      ]
+    },
+    "expires_at": "2026-10-05T13:47:04.802Z",
+    "created_at": "2026-09-05T13:47:04.808Z"
+  }
+}
+]
