@@ -57,3 +57,33 @@ body {
   animation: laserScan 2.4s ease-in-out infinite;
   pointer-events: none;
 }
+
+/* Accessibility Large Text Mode */
+body.kiosk-large-text {
+  font-size: 115%;
+}
+
+body.kiosk-large-text .text-xs {
+  font-size: 0.85rem !important;
+}
+
+body.kiosk-large-text .text-sm {
+  font-size: 1rem !important;
+}
+
+body.kiosk-large-text .text-base {
+  font-size: 1.15rem !important;
+}
+
+body.kiosk-large-text .text-lg {
+  font-size: 1.3rem !important;
+}
+
+body.kiosk-large-text .text-xl {
+  font-size: 1.5rem !important;
+}
+
+body.kiosk-large-text .text-2xl {
+  font-size: 1.8rem !important;
+}
+

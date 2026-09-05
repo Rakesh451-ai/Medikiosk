@@ -3,6 +3,9 @@ import { Camera, Upload, CheckCircle2, Sparkles, AlertCircle, RefreshCw, FileTex
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import confetti from 'canvas-confetti';
+import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 
 export function ScannerPage({ patient, onDocumentAdded }) {
   const [activeAction, setActiveAction] = useState('scan');
@@ -120,51 +123,57 @@ export function ScannerPage({ patient, onDocumentAdded }) {
   };
 
   return (
-    <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center">
+    <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center select-none font-sans">
       <div className="w-full max-w-6xl space-y-6">
         
         {/* Header Title Section */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#297006] text-white text-xs font-bold shadow-xs mb-2">
               <Camera className="w-3.5 h-3.5" />
-              <span>Optical Document Scanner</span>
+              <span>Easy Paper Scanner</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-[#052e0a]">
-              Medical Document & Prescription Scanner
+              Scan Your Doctor's Slip or Medical Report
             </h1>
-            <p className="text-xs sm:text-sm text-gray-600">
-              Align medical prescriptions or lab reports to run real-time OCR extraction with Django REST backend
+            <p className="text-xs sm:text-sm text-gray-600 mt-1">
+              Hold your prescription or lab paper up to the camera. We'll read the medicines and instructions automatically.
             </p>
           </div>
 
-          {/* Action Buttons: Scan & Upload (from DocScanner.pdf) */}
-          <div className="flex items-center gap-3">
-            <button
+          {/* Action Buttons: Scan & Upload */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
               onClick={() => {
                 setActiveAction('scan');
                 handleStartScan(presetTemplates[0]);
               }}
-              className="px-6 py-2.5 rounded-full bg-[#297006] hover:bg-[#205905] text-white font-extrabold text-base shadow-md transition cursor-pointer flex items-center gap-2"
+              variant="secondary"
+              size="md"
+              icon={Camera}
+              className="px-6 py-2.5 sm:text-base"
             >
-              <Camera className="w-5 h-5" />
-              <span>Scan</span>
-            </button>
+              Scan Slip
+            </Button>
 
-            <button
+            <Button
               onClick={() => {
                 setActiveAction('upload');
                 fileInputRef.current?.click();
               }}
-              className="px-6 py-2.5 rounded-full bg-[#297006] hover:bg-[#205905] text-white font-extrabold text-base shadow-md transition cursor-pointer flex items-center gap-2"
+              variant="outline"
+              size="md"
+              icon={Upload}
+              className="bg-white hover:bg-gray-100 text-[#052e0a] border-2 border-[#297006] px-6 py-2.5 sm:text-base"
             >
-              <Upload className="w-5 h-5" />
-              <span>Upload</span>
-            </button>
+              Upload Photo/PDF
+            </Button>
+
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*,.pdf"
+              capture="environment"
               onChange={handleFileUpload}
               className="hidden"
             />
@@ -173,32 +182,33 @@ export function ScannerPage({ patient, onDocumentAdded }) {
 
         {/* Allergy Warning Banner */}
         {allergyAlert && (
-          <div className="p-4 bg-rose-600 text-white rounded-3xl shadow-lg flex items-start gap-3 animate-bounce">
-            <AlertCircle className="w-6 h-6 shrink-0 mt-0.5" />
+          <div className="p-4 bg-rose-600 text-white rounded-3xl shadow-xl flex items-start gap-3.5 border-2 border-rose-300 animate-fade-in">
+            <AlertCircle className="w-7 h-7 shrink-0 mt-0.5 text-amber-200" />
             <div>
-              <h4 className="font-extrabold text-sm">⚠️ CRITICAL DRUG ALLERGY CONTRAINDICATION!</h4>
-              <p className="text-xs text-rose-100 mt-0.5">
-                The scanned prescription includes Amoxicillin. Patient chart records an allergy to <strong>Penicillin</strong>. Consult Dr. Michael Chen immediately.
+              <h4 className="font-black text-base tracking-wide">⚠️ IMPORTANT ALLERGY WARNING!</h4>
+              <p className="text-xs sm:text-sm text-rose-100 mt-1 leading-relaxed">
+                This prescription contains <strong>Amoxicillin</strong>, but your chart lists an allergy to <strong>Penicillin</strong>. 
+                Please talk to your doctor or nurse before taking this medicine.
               </p>
             </div>
           </div>
         )}
 
-        {/* Laptop/Desktop 2-Column Responsive Layout */}
+        {/* 2-Column Responsive Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
-          {/* Left Column: Royal Blue Scanner Viewfinder (#3f51b5) */}
-          <div className="lg:col-span-7 bg-white rounded-3xl p-5 shadow-md border border-[#297006]/20 space-y-4">
+          {/* Left Column: Viewfinder & Presets */}
+          <Card className="lg:col-span-7 p-4 sm:p-5 shadow-md border-2 border-emerald-200/80 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <span className="font-bold text-xs text-[#052e0a] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                Optical Viewfinder Ready
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                Scanner Camera Ready
               </span>
-              <span className="text-[11px] text-gray-500 font-mono">300 DPI High-Contrast Mode</span>
+              <span className="text-[11px] text-gray-500 font-medium">Automatic text detection active</span>
             </div>
 
-            {/* Royal Blue Viewfinder (#3f51b5) - Exactly from DocScanner.pdf */}
-            <div className="relative w-full h-[360px] sm:h-[400px] rounded-3xl bg-[#3f51b5] shadow-xl overflow-hidden flex flex-col justify-between p-5 border-2 border-[#303f9f]">
+            {/* Viewfinder (#3f51b5) */}
+            <div className="relative w-full h-[300px] sm:h-[380px] rounded-3xl bg-[#3f51b5] shadow-xl overflow-hidden flex flex-col justify-between p-4 sm:p-5 border-2 border-[#303f9f]">
               
               {/* Corner Viewfinder Reticles */}
               <div className="absolute inset-4 pointer-events-none z-10">
@@ -212,136 +222,182 @@ export function ScannerPage({ patient, onDocumentAdded }) {
               {isScanning && <div className="laser-line z-20"></div>}
 
               {/* Center Content */}
-              <div className="relative my-auto w-full h-[240px] bg-white/10 rounded-2xl border border-white/20 p-4 flex flex-col items-center justify-center text-center overflow-hidden">
+              <div className="relative my-auto w-full h-[200px] sm:h-[220px] bg-white/10 rounded-2xl border border-white/20 p-4 flex flex-col items-center justify-center text-center overflow-hidden">
                 {isScanning ? (
                   <div className="space-y-3 flex flex-col items-center z-20 animate-fade-in">
                     <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-white animate-pulse">
                       <Camera className="w-8 h-8" />
                     </div>
-                    <span className="text-white font-bold text-base">
-                      Optical OCR Engine Analyzing Document...
+                    <span className="text-white font-black text-base sm:text-lg">
+                      Reading document... Please hold still
                     </span>
-                    <div className="w-48 bg-black/40 rounded-full h-2.5 overflow-hidden">
+                    <div className="w-48 bg-black/40 rounded-full h-3 overflow-hidden">
                       <div
-                        className="bg-emerald-400 h-2.5 rounded-full transition-all duration-200"
+                        className="bg-emerald-400 h-3 rounded-full transition-all duration-200"
                         style={{ width: `${scanProgress}%` }}
                       ></div>
                     </div>
-                    <span className="text-xs text-white/80 font-mono">{scanProgress}% completed</span>
+                    <span className="text-xs text-white/90 font-bold">{scanProgress}% finished</span>
                   </div>
                 ) : (
                   <div className="space-y-3 flex flex-col items-center text-white/90 z-10">
-                    <div className="w-16 h-16 rounded-3xl bg-white/20 flex items-center justify-center text-white backdrop-blur-xs shadow-inner">
-                      <Camera className="w-9 h-9" />
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-white/20 flex items-center justify-center text-white backdrop-blur-xs shadow-inner">
+                      <Camera className="w-8 h-8 sm:w-9 sm:h-9" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold">Document Scanner Ready</h3>
-                      <p className="text-xs text-white/80 max-w-sm mt-1">
-                        Select a sample document below or tap "Upload" to analyze your own medical report.
+                      <h3 className="text-base sm:text-lg font-black text-white">Align Document in the Blue Box</h3>
+                      <p className="text-xs text-white/90 max-w-sm mt-1">
+                        Tap "Scan Prescription" below, or choose one of the sample papers to test.
                       </p>
                     </div>
-                    <button
+                    <Button
                       onClick={() => handleStartScan(presetTemplates[0])}
-                      className="px-5 py-2 rounded-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                      variant="primary"
+                      size="sm"
+                      icon={Sparkles}
+                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
                     >
-                      <Sparkles className="w-4 h-4" />
-                      <span>Start Live OCR Scan</span>
-                    </button>
+                      Scan Prescription Now
+                    </Button>
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-between text-xs text-white/80 z-20">
-                <span>Auto-edge detection active</span>
-                <span>Django Optical Parser</span>
+              <div className="flex items-center justify-between text-xs text-white/80 z-20 font-medium">
+                <span>✓ High resolution capture</span>
+                <span>Auto-detect active</span>
               </div>
             </div>
 
-            {/* Quick 1-Click Test Documents */}
+            {/* Quick 1-Click Sample Documents */}
             <div className="pt-2">
-              <span className="text-xs font-bold text-[#052e0a] block mb-2">Preset Medical Test Records:</span>
+              <span className="text-xs font-extrabold text-[#052e0a] block mb-2">
+                Or Try with Sample Medical Papers (1-Click):
+              </span>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {presetTemplates.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => handleStartScan(item)}
-                    className="p-3 bg-gray-50 hover:bg-[#cbf5d6]/40 active:scale-95 text-left rounded-2xl border border-gray-200 hover:border-[#297006] transition flex flex-col justify-between h-22 cursor-pointer"
+                    className="p-3 bg-emerald-50/60 hover:bg-emerald-100 active:scale-95 text-left rounded-2xl border border-emerald-200 hover:border-[#297006] transition flex flex-col justify-between h-24 cursor-pointer shadow-2xs"
                   >
                     <div>
-                      <span className="font-extrabold text-xs text-[#052e0a] block truncate">{item.doc_type}</span>
-                      <span className="text-[11px] text-gray-600 line-clamp-1 mt-0.5">{item.title}</span>
+                      <span className="font-extrabold text-xs text-[#052e0a] block truncate">
+                        📄 {item.doc_type}
+                      </span>
+                      <span className="text-[11px] text-gray-600 line-clamp-1 mt-0.5 font-medium">
+                        {item.title}
+                      </span>
                     </div>
-                    <span className="text-[10px] font-bold text-[#297006] mt-1 flex items-center gap-1">
-                      <span>Click to Scan</span>
+                    <span className="text-[10px] font-black text-[#297006] mt-1 flex items-center gap-1">
+                      <span>Tap to Test Scan</span>
                       <ArrowRight className="w-3 h-3" />
                     </span>
                   </button>
                 ))}
               </div>
             </div>
-          </div>
+          </Card>
 
-          {/* Right Column: OCR Extraction Results & AI Sync */}
+          {/* Right Column: Scanned Results in Plain English */}
           <div className="lg:col-span-5 space-y-4">
-            <div className="bg-white rounded-3xl p-5 shadow-md border border-[#297006]/20 space-y-4">
+            <Card className="p-4 sm:p-5 shadow-md border-2 border-emerald-200/80 space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-gray-100">
                 <div className="flex items-center gap-2">
                   <FileText className="w-5 h-5 text-[#297006]" />
-                  <h3 className="font-bold text-sm text-[#052e0a]">Parsed OCR Results</h3>
+                  <h3 className="font-extrabold text-base text-[#052e0a]">What Was Found on Your Paper</h3>
                 </div>
                 {scannedResult && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#297006] font-bold text-[11px]">
-                    Confidence: {scannedResult.confidence}
-                  </span>
+                  <Badge variant="success">
+                    ✓ {scannedResult.confidence || 'Clearly Read'}
+                  </Badge>
                 )}
               </div>
 
               {scannedResult ? (
-                <div className="space-y-3 animate-fade-in text-xs">
-                  <div className="bg-gray-50 p-3 rounded-2xl border border-gray-100 space-y-1">
-                    <span className="text-[10px] font-extrabold uppercase text-[#297006]">{scannedResult.doc_type}</span>
+                <div className="space-y-3.5 animate-fade-in text-xs">
+                  {/* Document Summary Card */}
+                  <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 space-y-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-[#297006]">
+                      {scannedResult.doc_type}
+                    </span>
                     <h4 className="font-extrabold text-sm text-gray-900">{scannedResult.title}</h4>
-                    <p className="text-[11px] text-gray-500">{scannedResult.doctor} • {scannedResult.facility}</p>
+                    <p className="text-[11px] text-gray-600">
+                      Doctor: {scannedResult.doctor} • {scannedResult.facility}
+                    </p>
                   </div>
 
+                  {/* Plain Language Diagnosis */}
                   <div>
-                    <span className="text-gray-500 font-bold block mb-1">Clinical Findings & Diagnosis:</span>
-                    <p className="bg-emerald-50 text-[#052e0a] p-3 rounded-2xl border border-emerald-200/60 font-medium leading-relaxed">
+                    <span className="text-gray-700 font-bold block mb-1">Doctor's Diagnosis / Reason:</span>
+                    <p className="bg-emerald-50 text-[#052e0a] p-3 rounded-2xl border border-emerald-200 font-medium leading-relaxed">
                       {scannedResult.diagnosis}
                     </p>
                   </div>
 
-                  <div>
-                    <span className="text-gray-500 font-bold block mb-1">Extracted Clinical Text:</span>
-                    <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-2xl whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
-                      {scannedResult.extracted_text}
-                    </pre>
-                  </div>
+                  {/* Extracted Medicines in Simple Cards */}
+                  {scannedResult.medications && scannedResult.medications.length > 0 && (
+                    <div>
+                      <span className="text-gray-700 font-bold block mb-1.5">Prescribed Medicines Found:</span>
+                      <div className="space-y-2">
+                        {scannedResult.medications.map((med, mIdx) => (
+                          <div key={mIdx} className="p-3 bg-white border border-emerald-300 rounded-2xl shadow-2xs space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-black text-sm text-[#052e0a]">💊 {med.name}</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                                {med.dose}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-gray-600 font-medium">
+                              <strong>How to take:</strong> {med.instruction || med.frequency}
+                            </p>
+                            <p className="text-[10px] text-emerald-700 font-bold">
+                              ⏰ When: {med.timing || 'Daily'} for {med.duration}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                  <div className="pt-2 flex gap-2">
-                    <Link
+                  {/* Navigation links */}
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                    <Button
                       to="/summary"
-                      className="flex-1 py-2.5 rounded-full bg-[#052e0a] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm"
+                      variant="primary"
+                      size="md"
+                      fullWidth
+                      icon={ArrowRight}
+                      iconPosition="right"
                     >
-                      <span>View in Summary</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
-                    <Link
+                      View in Health Chart
+                    </Button>
+                    <Button
                       to="/agent"
-                      className="flex-1 py-2.5 rounded-full bg-[#ff9800] text-black font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm"
+                      variant="accent"
+                      size="md"
+                      fullWidth
+                      icon={Sparkles}
+                      iconPosition="left"
                     >
-                      <Sparkles className="w-4 h-4" />
-                      <span>Ask AI Doctor</span>
-                    </Link>
+                      Ask Assistant
+                    </Button>
                   </div>
                 </div>
               ) : (
-                <div className="py-12 text-center text-gray-500 space-y-2">
-                  <Camera className="w-10 h-10 text-gray-300 mx-auto" />
-                  <p className="text-xs">No scan performed yet. Select a record or upload to begin OCR parsing.</p>
+                <div className="py-12 text-center text-gray-500 space-y-3">
+                  <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+                    <Camera className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-gray-700">No Document Scanned Yet</h4>
+                    <p className="text-xs text-gray-500 mt-1 max-w-xs mx-auto">
+                      Tap "Scan Prescription" or pick one of the sample slips on the left to see your medicines.
+                    </p>
+                  </div>
                 </div>
               )}
-            </div>
+            </Card>
           </div>
 
         </div>

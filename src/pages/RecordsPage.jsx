@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { FileText, ChevronRight, CheckCircle2, Search, Filter, Calendar, X, Sparkles, Plus, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
+import { Input } from '../components/ui/Input';
 
 export function RecordsPage({ documents = [] }) {
   const [filter, setFilter] = useState('All');
@@ -17,81 +22,87 @@ export function RecordsPage({ documents = [] }) {
   });
 
   return (
-    <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center">
+    <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center select-none font-sans">
       <div className="w-full max-w-6xl space-y-6">
         
         {/* Header Section */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00bcd4] text-white text-xs font-bold shadow-xs mb-2">
               <FileText className="w-3.5 h-3.5" />
-              <span>Diagnostic Archive</span>
+              <span>Saved Medical Papers</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-[#052e0a]">
-              Medical Records & Diagnostic Reports
+              My Past Prescriptions & Medical Reports
             </h1>
-            <p className="text-xs sm:text-sm text-gray-600">
-              Verified optical OCR archive synced directly with Django database
+            <p className="text-xs sm:text-sm text-gray-600 mt-1">
+              All your doctor slips, blood tests, and imaging scans safely organized and easy to read.
             </p>
           </div>
 
-          <Link
+          <Button
             to="/scanner"
-            className="px-5 py-2.5 rounded-full bg-[#297006] hover:bg-[#205905] text-white font-bold text-sm shadow-md transition flex items-center gap-2"
+            variant="secondary"
+            size="md"
+            icon={Plus}
+            className="w-full sm:w-auto"
           >
-            <Plus className="w-4 h-4" />
-            <span>Scan New Record</span>
-          </Link>
+            Scan New Paper
+          </Button>
         </div>
 
         {/* Search & Filter Controls */}
-        <div className="bg-white rounded-3xl p-4 shadow-sm border border-[#297006]/20 flex flex-wrap items-center justify-between gap-4">
+        <Card className="p-4 shadow-sm border-2 border-emerald-200/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
           {/* Filter Pills */}
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-1">
-            {['All', 'Prescription', 'Lab Report', 'Radiology'].map((f) => (
+            {[
+              { id: 'All', label: 'All Papers' },
+              { id: 'Prescription', label: '💊 Prescriptions' },
+              { id: 'Lab Report', label: '🧪 Blood & Labs' },
+              { id: 'Radiology', label: '🩻 X-Rays & Scans' }
+            ].map((f) => (
               <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                  filter === f
-                    ? 'bg-[#297006] text-white shadow-xs'
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  filter === f.id
+                    ? 'bg-[#297006] text-white shadow-xs font-black'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                {f}
+                {f.label}
               </button>
             ))}
           </div>
 
           {/* Search Box */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-            <input
-              type="text"
+          <div className="w-full md:w-80">
+            <Input
+              icon={Search}
+              placeholder="Search doctor, clinic, test..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search reports or doctors..."
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-[#297006]"
+              className="bg-gray-50 text-xs"
             />
           </div>
-        </div>
+        </Card>
 
         {/* Documents Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredDocs.map((doc) => (
-            <div
+            <Card
               key={doc.id}
               onClick={() => setSelectedDoc(doc)}
-              className="bg-white rounded-3xl p-5 shadow-sm border border-gray-200 hover:border-[#297006] hover:shadow-md transition flex flex-col justify-between cursor-pointer space-y-3"
+              className="p-5 shadow-sm border-2 border-gray-200 hover:border-[#297006] hover:shadow-md transition flex flex-col justify-between cursor-pointer space-y-3"
             >
               <div>
                 <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-50 text-[#297006]">
+                  <Badge variant="default" className="text-[10px] uppercase font-black bg-emerald-50 text-[#297006]">
                     {doc.doc_type}
-                  </span>
-                  <span className="text-[10px] font-mono text-emerald-700 font-bold">
-                    OCR {doc.confidence}
-                  </span>
+                  </Badge>
+                  <Badge variant="success" className="text-[10px]">
+                    ✓ Verified
+                  </Badge>
                 </div>
 
                 <h3 className="font-extrabold text-sm text-gray-900 mt-2 line-clamp-2">
@@ -99,74 +110,79 @@ export function RecordsPage({ documents = [] }) {
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">{doc.doctor} • {doc.facility}</p>
                 
-                <div className="mt-3 p-2.5 bg-gray-50 rounded-xl text-xs text-gray-700 line-clamp-3 leading-relaxed">
+                <div className="mt-3 p-3 bg-gray-50 rounded-xl text-xs text-gray-700 line-clamp-3 leading-relaxed border border-gray-100 font-medium">
                   {doc.diagnosis || doc.extracted_text}
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs font-bold text-[#297006]">
-                <span>Inspect Clinical Record</span>
+              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs font-extrabold text-[#297006]">
+                <span>View Summary</span>
                 <ChevronRight className="w-4 h-4" />
               </div>
-            </div>
+            </Card>
           ))}
         </div>
 
         {filteredDocs.length === 0 && (
-          <div className="bg-white rounded-3xl p-12 text-center text-gray-500 space-y-2 border border-gray-200">
+          <Card className="p-12 text-center text-gray-500 space-y-2 border border-gray-200">
             <FileText className="w-12 h-12 text-gray-300 mx-auto" />
             <p className="text-sm font-bold">No clinical records found</p>
             <p className="text-xs text-gray-400">Try changing your filter or scan a new document.</p>
-          </div>
+          </Card>
         )}
 
       </div>
 
-      {/* DETAIL MODAL */}
+      {/* DETAIL MODAL USING REUSABLE MODAL COMPONENT */}
       {selectedDoc && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in text-gray-900">
-          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl border-4 border-[#297006] max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-              <h3 className="font-extrabold text-base text-gray-900 truncate">{selectedDoc.title}</h3>
-              <button
-                onClick={() => setSelectedDoc(null)}
-                className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="py-4 space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-xl">
-                <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">Physician</span>
-                  <p className="font-semibold text-gray-800">{selectedDoc.doctor}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">Hospital / Lab</span>
-                  <p className="font-semibold text-gray-800">{selectedDoc.facility}</p>
-                </div>
-              </div>
-
+        <Modal
+          isOpen={Boolean(selectedDoc)}
+          onClose={() => setSelectedDoc(null)}
+          title={selectedDoc.title}
+          subtitle={`${selectedDoc.doc_type} • ${selectedDoc.doctor}`}
+          icon={FileText}
+        >
+          <div className="space-y-3.5 text-xs text-gray-900">
+            <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-2xl border border-gray-200">
               <div>
-                <span className="text-[10px] font-bold text-gray-400 uppercase">Extracted Clinical Data</span>
-                <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed mt-1">
-                  {selectedDoc.extracted_text}
-                </pre>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Doctor</span>
+                <p className="font-bold text-gray-900 mt-0.5">{selectedDoc.doctor}</p>
+              </div>
+              <div>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Hospital / Lab</span>
+                <p className="font-bold text-gray-900 mt-0.5">{selectedDoc.facility}</p>
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2">
-              <Link
+            <div>
+              <span className="text-[11px] font-bold text-gray-700 block mb-1">Doctor's Diagnosis & Findings:</span>
+              <p className="p-3.5 bg-emerald-50 text-[#052e0a] rounded-2xl border border-emerald-200 font-medium leading-relaxed">
+                {selectedDoc.diagnosis}
+              </p>
+            </div>
+
+            <details className="bg-gray-50 p-3 rounded-2xl border border-gray-200 cursor-pointer">
+              <summary className="font-bold text-gray-700 text-xs select-none">
+                📄 View Full Scanned Slip Text
+              </summary>
+              <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed mt-2 max-h-40 overflow-y-auto">
+                {selectedDoc.extracted_text}
+              </pre>
+            </details>
+
+            <div className="pt-2">
+              <Button
                 to="/agent"
-                className="flex-1 py-2.5 rounded-full bg-[#052e0a] text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                variant="primary"
+                size="md"
+                fullWidth
+                icon={Sparkles}
               >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Ask AI Agent About this Report</span>
-              </Link>
+                Ask Health Assistant About this Paper
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from './components/layout/Navbar';
+import { BottomNav } from './components/layout/BottomNav';
 import { Footer } from './components/layout/Footer';
 import { HomePage } from './pages/HomePage';
 import { ScannerPage } from './pages/ScannerPage';
@@ -48,7 +49,7 @@ export default function App() {
 
   return (
     <Router>
-      <div className="min-h-screen w-full bg-[#cbf5d6] text-slate-800 font-sans flex flex-col selection:bg-emerald-500 selection:text-white">
+      <div className="min-h-screen w-full bg-[#f0f7f4] text-slate-800 font-sans flex flex-col selection:bg-emerald-600 selection:text-white">
         
         {/* Universal Header with working URLs in every page */}
         <Navbar
@@ -57,8 +58,8 @@ export default function App() {
           apiStatus={apiStatus}
         />
 
-        {/* Multi-Page Routes */}
-        <main className="flex-1 w-full flex flex-col">
+        {/* Multi-Page Routes with mobile safe padding for bottom nav */}
+        <main className="flex-1 w-full flex flex-col pb-20 md:pb-0">
           <Routes>
             <Route
               path="/"
@@ -117,6 +118,9 @@ export default function App() {
 
         {/* Universal Footer */}
         <Footer />
+
+        {/* Responsive Mobile Bottom Navigation Bar */}
+        <BottomNav documentsCount={documents.length} />
       </div>
     </Router>
   );

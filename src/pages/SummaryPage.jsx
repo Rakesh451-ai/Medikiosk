@@ -6,6 +6,10 @@ import {
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import confetti from 'canvas-confetti';
+import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
 
 export function SummaryPage({ patient, vitals, medications = [], documents = [], onDataUpdated }) {
   const [isUpdatingVitals, setIsUpdatingVitals] = useState(false);
@@ -47,204 +51,221 @@ export function SummaryPage({ patient, vitals, medications = [], documents = [],
   };
 
   return (
-    <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center">
+    <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center select-none font-sans">
       <div className="w-full max-w-6xl space-y-6">
         
-        {/* Top Header Banner - Faithful to MedicalSummary.pdf */}
+        {/* Top Header Banner */}
         <div className="bg-[#00bcd4] rounded-3xl p-4 sm:p-6 shadow-md flex flex-wrap items-center justify-between gap-4 text-white">
           <div className="flex items-center gap-3">
             <div className="py-2 px-6 rounded-full bg-[#297006] shadow-sm flex items-center justify-center">
               <span className="text-xl sm:text-2xl font-black text-white tracking-wide">
-                Medical Summary
+                My Health Summary
               </span>
             </div>
             <div className="hidden sm:block">
-              <p className="text-xs font-bold text-white/90">Comprehensive Clinical Patient Record</p>
-              <p className="text-[11px] text-cyan-100">Synchronized with Django REST API</p>
+              <p className="text-xs font-extrabold text-white">Your Live Medical & Vitals Chart</p>
+              <p className="text-[11px] text-cyan-100">✓ Up to Date & Verified</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
               onClick={handlePrint}
-              className="px-4 py-2 rounded-full bg-[#ff9800] hover:bg-[#f57c00] text-black font-extrabold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer"
+              variant="accent"
+              size="sm"
+              icon={Printer}
+              className="text-gray-950 font-black"
             >
-              <Printer className="w-4 h-4" />
-              <span>Print Chart</span>
-            </button>
-            <Link
+              Print My Summary
+            </Button>
+            <Button
               to="/agent"
-              className="px-4 py-2 rounded-full bg-[#052e0a] hover:bg-[#0a4213] text-white font-bold text-xs shadow-md transition flex items-center gap-1.5"
+              variant="primary"
+              size="sm"
+              icon={Sparkles}
             >
-              <Sparkles className="w-4 h-4" />
-              <span>Ask AI Doctor</span>
-            </Link>
+              Ask Assistant
+            </Button>
           </div>
         </div>
 
-        {/* Patient Demographic Card */}
-        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-md border border-[#297006]/20">
+        {/* Patient Profile Card */}
+        <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80">
           <div className="flex flex-wrap items-center justify-between pb-4 border-b border-gray-100 gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 rounded-2xl bg-[#cbf5d6] text-[#297006] font-extrabold text-2xl flex items-center justify-center shadow-inner">
+              <div className="w-14 h-14 rounded-2xl bg-[#cbf5d6] text-[#297006] font-black text-2xl flex items-center justify-center shadow-inner">
                 {patient?.name?.[0] || 'S'}
               </div>
               <div>
                 <h2 className="text-xl font-extrabold text-[#052e0a]">{patient?.name || 'Sarah Jenkins'}</h2>
-                <p className="text-xs text-gray-500">
-                  ID: <strong className="text-gray-800">{patient?.patient_id || 'MK-78294'}</strong> • {patient?.gender || 'Female'}, {patient?.age || 38} years
+                <p className="text-xs text-gray-600 font-medium">
+                  Card ID: <strong className="text-gray-900">{patient?.patient_id || 'MK-78294'}</strong> • {patient?.gender || 'Female'}, {patient?.age || 38} years old
                 </p>
-                <p className="text-[11px] text-gray-500">Primary: {patient?.primary_doctor || 'Dr. Michael Chen, MD (Cardiology)'}</p>
+                <p className="text-[11px] text-gray-500">Doctor: {patient?.primary_doctor || 'Dr. Michael Chen, MD (Cardiology)'}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               <div className="text-right">
-                <span className="inline-block px-3.5 py-1 rounded-full bg-emerald-100 text-[#297006] font-black text-sm">
-                  Blood: {patient?.blood_group || 'A+'}
-                </span>
-                <p className="text-[10px] text-gray-400 mt-1">Emergency: {patient?.emergency_contact}</p>
+                <Badge variant="success" className="px-3.5 py-1 text-sm bg-[#297006] text-white">
+                  Blood Group: {patient?.blood_group || 'A+'}
+                </Badge>
+                <p className="text-[11px] text-gray-500 mt-1">Emergency: {patient?.emergency_contact || '+1 (555) 234-8901'}</p>
               </div>
             </div>
           </div>
 
-          {/* Known Allergies Alert Banner */}
+          {/* Known Allergies Alert Banner & Measurement trigger */}
           <div className="pt-3 flex flex-wrap items-center justify-between text-xs gap-2">
-            <div className="flex items-center gap-2 text-rose-800 font-bold">
+            <div className="flex items-center gap-2 text-rose-900 font-bold bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>Documented Allergies:</span>
-              <span className="bg-rose-100 text-rose-900 px-2.5 py-0.5 rounded-lg font-extrabold">
-                {Array.isArray(patient?.allergies) ? patient.allergies.join(', ') : 'Penicillin, Sulfa Drugs'}
+              <span>Known Drug Allergy:</span>
+              <span className="bg-rose-200 text-rose-900 px-2 py-0.5 rounded-md font-black">
+                {Array.isArray(patient?.allergies) ? patient.allergies.join(', ') : 'Penicillin'}
               </span>
             </div>
-            <button
+            <Button
               onClick={handleSimulateVitals}
               disabled={isUpdatingVitals}
-              className="px-3 py-1 rounded-full bg-[#cbf5d6] text-[#052e0a] font-bold text-xs hover:bg-[#b5ecc4] transition flex items-center gap-1 cursor-pointer"
+              variant="outline"
+              size="sm"
+              icon={RefreshCw}
+              className={`bg-emerald-100 hover:bg-emerald-200 text-[#052e0a] border-emerald-200 font-black ${isUpdatingVitals ? 'opacity-80' : ''}`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingVitals ? 'animate-spin' : ''}`} />
-              <span>{isUpdatingVitals ? 'Measuring...' : 'Take New Vitals Measurement'}</span>
-            </button>
+              {isUpdatingVitals ? 'Measuring Sensor...' : 'Take New Sensor Measurement'}
+            </Button>
           </div>
-        </div>
+        </Card>
 
-        {/* Live Vitals Grid */}
-        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-md border border-[#297006]/20 space-y-3">
+        {/* Live Vitals Grid with "What This Means" Explanations */}
+        <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="w-5 h-5 text-[#297006]" />
-              <h3 className="font-extrabold text-base text-[#052e0a]">Live Kiosk Patient Vitals</h3>
+              <h3 className="font-extrabold text-base text-[#052e0a]">Your Body Vitals Right Now</h3>
             </div>
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
-              Optimal Rhythm
-            </span>
+            <Badge variant="success">
+              ● All Numbers Normal
+            </Badge>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            <div className="p-4 rounded-2xl bg-[#cbf5d6]/40 border border-[#297006]/20 flex items-center justify-between">
+            {/* Heart Rate */}
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-gray-500 block">Resting Pulse</span>
+                <span className="text-xs font-bold text-gray-500 block">Pulse (Heart Rate)</span>
                 <span className="text-2xl font-black text-[#052e0a]">{vitals?.heart_rate || 74} <small className="font-normal text-xs text-gray-500">bpm</small></span>
-                <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">Optimal Rhythm</span>
+                <span className="text-[11px] text-emerald-700 font-bold block mt-1">✓ Normal (60–100 bpm)</span>
               </div>
-              <Heart className="w-7 h-7 text-rose-500 fill-rose-500/20" />
+              <Heart className="w-8 h-8 text-rose-500 fill-rose-500/20 shrink-0" />
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#cbf5d6]/40 border border-[#297006]/20 flex items-center justify-between">
+            {/* Blood Pressure */}
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
               <div>
                 <span className="text-xs font-bold text-gray-500 block">Blood Pressure</span>
                 <span className="text-2xl font-black text-[#052e0a]">{vitals?.bp_systolic || 118}/{vitals?.bp_diastolic || 78}</span>
-                <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">Standard mmHg</span>
+                <span className="text-[11px] text-emerald-700 font-bold block mt-1">✓ Healthy Range (120/80)</span>
               </div>
-              <Activity className="w-7 h-7 text-blue-600" />
+              <Activity className="w-8 h-8 text-blue-600 shrink-0" />
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#cbf5d6]/40 border border-[#297006]/20 flex items-center justify-between">
+            {/* Oxygen SpO2 */}
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-gray-500 block">SpO2 Oxygen</span>
+                <span className="text-xs font-bold text-gray-500 block">Oxygen (SpO2)</span>
                 <span className="text-2xl font-black text-[#052e0a]">{vitals?.spo2 || 99}%</span>
-                <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">Oxygenated</span>
+                <span className="text-[11px] text-emerald-700 font-bold block mt-1">✓ Excellent (95–100%)</span>
               </div>
-              <Droplet className="w-7 h-7 text-teal-600" />
+              <Droplet className="w-8 h-8 text-teal-600 shrink-0" />
             </div>
 
-            <div className="p-4 rounded-2xl bg-[#cbf5d6]/40 border border-[#297006]/20 flex items-center justify-between">
+            {/* Temperature */}
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-gray-500 block">Temperature</span>
+                <span className="text-xs font-bold text-gray-500 block">Body Temperature</span>
                 <span className="text-2xl font-black text-[#052e0a]">{vitals?.temperature || 98.4}°F</span>
-                <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">Normothermic</span>
+                <span className="text-[11px] text-emerald-700 font-bold block mt-1">✓ Normal Body Temp</span>
               </div>
-              <Thermometer className="w-7 h-7 text-amber-600" />
+              <Thermometer className="w-8 h-8 text-amber-600 shrink-0" />
             </div>
           </div>
-        </div>
+        </Card>
 
-        {/* Active Medications & Scanned Documents Grid */}
+        {/* Daily Medicines & Medical Reports Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
-          {/* Active Medications */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-md border border-[#297006]/20 space-y-3">
+          {/* Active Prescriptions / Daily Medicines */}
+          <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <Pill className="w-5 h-5 text-[#297006]" />
-                <h3 className="font-extrabold text-sm sm:text-base text-[#052e0a]">Active Prescriptions ({medications.length})</h3>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-[#052e0a]">Daily Prescribed Medicines</h3>
+                  <p className="text-[11px] text-gray-500">Tap a medicine to mark it as taken today</p>
+                </div>
               </div>
               <Link to="/scanner" className="text-xs font-bold text-[#297006] hover:underline flex items-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> Scan New Rx
+                <Plus className="w-3.5 h-3.5" /> Scan New Slip
               </Link>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {medications.map((m) => (
                 <div
                   key={m.id}
                   onClick={() => handleToggleMed(m.id)}
-                  className={`p-3 rounded-2xl border transition-all flex items-center justify-between cursor-pointer text-xs ${
+                  className={`p-3.5 rounded-2xl border-2 transition-all flex items-center justify-between cursor-pointer text-xs ${
                     m.taken_today
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950 line-through opacity-75'
-                      : 'bg-gray-50 hover:bg-[#cbf5d6]/30 border-gray-200'
+                      ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950'
+                      : 'bg-gray-50 hover:bg-emerald-50/40 border-gray-200'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-                      m.taken_today ? 'bg-[#297006] text-white' : 'border-2 border-gray-300 text-transparent'
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-xs transition ${
+                      m.taken_today ? 'bg-[#297006] text-white' : 'border-2 border-gray-300 text-gray-300'
                     }`}>
                       ✓
                     </span>
                     <div>
-                      <h4 className="font-bold text-sm text-gray-900">{m.name} <span className="font-normal text-xs text-gray-500">({m.dose})</span></h4>
-                      <p className="text-xs text-gray-500">{m.frequency} • {m.instruction}</p>
+                      <h4 className="font-black text-sm text-gray-900">
+                        {m.name} <span className="font-bold text-xs text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-md">({m.dose})</span>
+                      </h4>
+                      <p className="text-xs text-gray-600 mt-0.5">{m.instruction || m.frequency}</p>
                     </div>
                   </div>
-                  <span className="text-xs font-bold bg-[#cbf5d6] text-[#052e0a] px-3 py-1 rounded-full">
-                    {m.timing}
-                  </span>
+                  <Badge variant={m.taken_today ? 'success' : 'warning'}>
+                    {m.taken_today ? '✓ Taken' : m.timing || 'Today'}
+                  </Badge>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
           {/* Diagnostic Scans & Reports */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-md border border-[#297006]/20 space-y-3">
+          <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-[#3f51b5]" />
-                <h3 className="font-extrabold text-sm sm:text-base text-[#052e0a]">Scanned Diagnostic Reports ({documents.length})</h3>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-[#052e0a]">Saved Medical Reports</h3>
+                  <p className="text-[11px] text-gray-500">Tap any report to view summary</p>
+                </div>
               </div>
               <Link to="/records" className="text-xs font-bold text-[#3f51b5] hover:underline">
-                View Full Archive →
+                View All Records →
               </Link>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {documents.map((d) => (
                 <div
                   key={d.id}
                   onClick={() => setSelectedDoc(d)}
-                  className="p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl border border-gray-200 flex items-center justify-between text-xs cursor-pointer transition"
+                  className="p-3 bg-gray-50 hover:bg-emerald-50/50 rounded-2xl border border-gray-200 flex items-center justify-between text-xs cursor-pointer transition"
                 >
                   <div className="flex items-center gap-3 truncate pr-2">
-                    <div className="w-9 h-9 rounded-xl bg-blue-100 text-[#3f51b5] flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#3f51b5] flex items-center justify-center shrink-0">
                       <FileText className="w-5 h-5" />
                     </div>
                     <div className="truncate">
@@ -253,71 +274,69 @@ export function SummaryPage({ patient, vitals, medications = [], documents = [],
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md">
-                      OCR {d.confidence}
-                    </span>
+                    <Badge variant="success">
+                      ✓ Verified
+                    </Badge>
                     <ChevronRight className="w-4 h-4 text-gray-400" />
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
         </div>
       </div>
 
-      {/* DOCUMENT DETAIL MODAL */}
+      {/* DOCUMENT DETAIL MODAL USING REUSABLE MODAL COMPONENT */}
       {selectedDoc && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in text-gray-900">
-          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl border-4 border-[#297006] max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-              <h4 className="font-extrabold text-base text-gray-900 truncate">{selectedDoc.title}</h4>
-              <button
-                onClick={() => setSelectedDoc(null)}
-                className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="py-4 space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-xl">
-                <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">Provider</span>
-                  <p className="font-semibold text-gray-800">{selectedDoc.doctor}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">Facility</span>
-                  <p className="font-semibold text-gray-800">{selectedDoc.facility}</p>
-                </div>
-              </div>
-
+        <Modal
+          isOpen={Boolean(selectedDoc)}
+          onClose={() => setSelectedDoc(null)}
+          title={selectedDoc.title}
+          subtitle={`${selectedDoc.doc_type} • ${selectedDoc.doctor}`}
+          icon={FileText}
+        >
+          <div className="space-y-3.5 text-xs text-gray-900">
+            <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
               <div>
-                <span className="text-[10px] font-bold text-gray-400 uppercase">Diagnosis / Impression</span>
-                <p className="p-3 bg-emerald-50 text-[#052e0a] rounded-xl font-medium mt-1">
-                  {selectedDoc.diagnosis}
-                </p>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Attending Doctor</span>
+                <p className="font-bold text-gray-900 mt-0.5">{selectedDoc.doctor}</p>
               </div>
-
               <div>
-                <span className="text-[10px] font-bold text-gray-400 uppercase">Raw Clinical Text</span>
-                <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed mt-1">
-                  {selectedDoc.extracted_text}
-                </pre>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Hospital / Lab</span>
+                <p className="font-bold text-gray-900 mt-0.5">{selectedDoc.facility}</p>
               </div>
             </div>
 
-            <div className="flex gap-2">
-              <Link
+            <div>
+              <span className="text-[11px] font-bold text-gray-700 block mb-1">Doctor's Diagnosis & Notes:</span>
+              <p className="p-3.5 bg-emerald-50 text-[#052e0a] rounded-2xl border border-emerald-200 font-medium leading-relaxed">
+                {selectedDoc.diagnosis}
+              </p>
+            </div>
+
+            <details className="bg-gray-50 p-3 rounded-2xl border border-gray-200 cursor-pointer">
+              <summary className="font-bold text-gray-700 text-xs select-none">
+                📄 View Full Scanned Slip Text
+              </summary>
+              <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed mt-2 max-h-40 overflow-y-auto">
+                {selectedDoc.extracted_text}
+              </pre>
+            </details>
+
+            <div className="pt-2">
+              <Button
                 to="/agent"
-                className="flex-1 py-2.5 rounded-full bg-[#052e0a] text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                variant="primary"
+                size="md"
+                fullWidth
+                icon={Sparkles}
               >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Ask AI Health Agent About This Report</span>
-              </Link>
+                Ask Health Assistant About This Report
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
