@@ -11,5 +11,7 @@ urlpatterns = [
     path('documents/scan/', views.scan_document, name='scan_document'),
     path('medications/', views.medications_list, name='medications_list'),
     path('medications/<int:pk>/toggle/', views.toggle_medication_taken, name='toggle_medication'),
+    path('agent/conversations/', views.conversations_list, name='conversations_list'),
+    path('agent/conversations/<int:pk>/', views.conversation_detail, name='conversation_detail'),
     path('agent/chat/', views.agent_chat, name='agent_chat'),
 ]

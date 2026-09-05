@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Patient, Vitals, MedicalDocument, Medication, ChatMessage
+from .models import Patient, Vitals, MedicalDocument, Medication, Conversation, ChatMessage
 
 class VitalsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -26,10 +26,28 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ChatMessage
-        fields = ['id', 'patient', 'sender', 'text', 'urgency', 'quick_replies', 'created_at', 'time']
+        fields = ['id', 'conversation', 'patient', 'sender', 'text', 'language', 'urgency', 'quick_replies', 'created_at', 'time']
 
     def get_time(self, obj):
         return obj.created_at.strftime("%I:%M %p")
+
+
+class ConversationSerializer(serializers.ModelSerializer):
+    last_message = serializers.SerializerMethodField()
+    messages_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Conversation
+        fields = ['id', 'patient', 'title', 'language', 'created_at', 'updated_at', 'last_message', 'messages_count']
+
+    def get_last_message(self, obj):
+        msg = obj.messages.last()
+        if msg:
+            return msg.text[:60] + ('...' if len(msg.text) > 60 else '')
+        return 'No messages yet'
+
+    def get_messages_count(self, obj):
+        return obj.messages.count()
 
 
 class PatientSerializer(serializers.ModelSerializer):

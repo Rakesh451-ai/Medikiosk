@@ -1,12 +1,17 @@
+import os
+import json
+import requests
+from django.conf import settings
+from django.utils import timezone
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from django.utils import timezone
-from .models import Patient, Vitals, MedicalDocument, Medication, ChatMessage
+
+from .models import Patient, Vitals, MedicalDocument, Medication, Conversation, ChatMessage
 from .serializers import (
     PatientSerializer, VitalsSerializer, MedicalDocumentSerializer,
-    MedicationSerializer, ChatMessageSerializer
+    MedicationSerializer, ConversationSerializer, ChatMessageSerializer
 )
 
 def get_or_create_default_patient():
@@ -102,34 +107,48 @@ def get_or_create_default_patient():
             status="Supplement"
         )
 
-        # Initial Agent welcome message
+    # Ensure at least one default conversation exists
+    default_conv = Conversation.objects.filter(patient=patient).first()
+    if not default_conv:
+        default_conv = Conversation.objects.create(
+            patient=patient,
+            title="General Health Consultation",
+            language="en"
+        )
         ChatMessage.objects.create(
+            conversation=default_conv,
             patient=patient,
             sender="agent",
-            text="Hello Sarah! Welcome to MediKiosk Mobile AI Health Assistant. I have reviewed your latest vitals and medications. How can I assist you today?",
+            text="Hello Sarah! I am your MediKiosk AI Clinical Doctor Agent. You can speak or write to me in English, हिंदी (Hindi), or Hinglish. How are you feeling today?",
+            language="en",
             urgency="normal",
             quick_replies=[
-                "Check medication safety",
-                "Explain my latest scan",
-                "How are my vitals?",
-                "Book doctor follow-up"
+                "Check drug allergy safety",
+                "Explain my latest scan report",
+                "Review my daily medications",
+                "Book appointment with Dr. Chen"
             ]
         )
+
     return patient
 
 
 @api_view(['GET'])
 def health_check(request):
-    patient_count = Patient.objects.count()
-    doc_count = MedicalDocument.objects.count()
     return Response({
         "status": "online",
         "service": "MediKiosk Django REST API",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "timestamp": timezone.now().isoformat(),
         "database": {
-            "patients": patient_count,
-            "documents": doc_count
+            "patients": Patient.objects.count(),
+            "documents": MedicalDocument.objects.count(),
+            "conversations": Conversation.objects.count()
+        },
+        "llm_config": {
+            "configured": bool(getattr(settings, 'LLM_API_KEY', '') and getattr(settings, 'LLM_API_KEY', '') != 'your_api_key_here'),
+            "provider": getattr(settings, 'LLM_PROVIDER', 'gemini'),
+            "model": getattr(settings, 'LLM_MODEL', 'gemini-1.5-flash')
         }
     })
 
@@ -137,9 +156,6 @@ def health_check(request):
 @api_view(['POST'])
 def login_view(request):
     patient_id = request.data.get('patient_id', 'MK-78294').strip()
-    pin = request.data.get('pin', '1234').strip()
-
-    # If demo or standard ID
     patient = Patient.objects.filter(patient_id__iexact=patient_id).first()
     if not patient:
         patient = get_or_create_default_patient()
@@ -178,7 +194,6 @@ def signup_view(request):
         primary_doctor="Dr. Michael Chen, MD (Cardiology)"
     )
 
-    # Initial default vitals
     Vitals.objects.create(
         patient=patient,
         heart_rate=72,
@@ -189,11 +204,18 @@ def signup_view(request):
         glucose=95
     )
 
-    # Welcome message
+    conv = Conversation.objects.create(
+        patient=patient,
+        title="Welcome Consultation",
+        language="en"
+    )
+
     ChatMessage.objects.create(
+        conversation=conv,
         patient=patient,
         sender="agent",
-        text=f"Welcome {name}! Your MediKiosk digital patient chart has been created with ID {new_id}. You can scan documents, monitor vitals, or ask me any health questions.",
+        text=f"Welcome {name}! Your MediKiosk chart has been created with ID {new_id}. You can chat with me in English, हिंदी, or Hinglish.",
+        language="en",
         quick_replies=["Scan new prescription", "Check my vitals", "Ask health question"]
     )
 
@@ -208,16 +230,10 @@ def signup_view(request):
 @api_view(['GET'])
 def patient_detail(request):
     pid = request.query_params.get('patient_id')
-    if pid:
-        patient = Patient.objects.filter(patient_id__iexact=pid).first()
-    else:
-        patient = get_or_create_default_patient()
-
+    patient = Patient.objects.filter(patient_id__iexact=pid).first() if pid else get_or_create_default_patient()
     if not patient:
         patient = get_or_create_default_patient()
-
-    serializer = PatientSerializer(patient)
-    return Response(serializer.data)
+    return Response(PatientSerializer(patient).data)
 
 
 @api_view(['PUT', 'POST'])
@@ -234,7 +250,6 @@ def update_vitals(request):
         temperature=request.data.get('temperature', 98.4),
         glucose=request.data.get('glucose', 92)
     )
-
     return Response(VitalsSerializer(vitals).data, status=status.HTTP_201_CREATED)
 
 
@@ -243,8 +258,7 @@ def list_documents(request):
     pid = request.query_params.get('patient_id')
     patient = Patient.objects.filter(patient_id__iexact=pid).first() if pid else get_or_create_default_patient()
     docs = MedicalDocument.objects.filter(patient=patient)
-    serializer = MedicalDocumentSerializer(docs, many=True)
-    return Response(serializer.data)
+    return Response(MedicalDocumentSerializer(docs, many=True).data)
 
 
 @api_view(['POST'])
@@ -253,7 +267,6 @@ def scan_document(request):
     pid = request.data.get('patient_id', 'MK-78294')
     patient = Patient.objects.filter(patient_id__iexact=pid).first() or get_or_create_default_patient()
 
-    # Preset templates or uploaded custom file
     doc_type = request.data.get('doc_type', 'Prescription')
     title = request.data.get('title', 'Scanned Clinical Prescription')
     facility = request.data.get('facility', 'Metro General Hospital')
@@ -262,10 +275,9 @@ def scan_document(request):
     extracted_text = request.data.get('extracted_text', '')
     confidence = request.data.get('confidence', '99.4%')
 
-    # Handle file upload if present
     uploaded_file = request.FILES.get('file', None)
     if uploaded_file and not extracted_text:
-        extracted_text = f"FILE SCAN: {uploaded_file.name}\nSize: {uploaded_file.size} bytes\nProcessed by Optical Kiosk Engine."
+        extracted_text = f"FILE SCAN: {uploaded_file.name}\nSize: {uploaded_file.size} bytes\nProcessed by Optical OCR Engine."
         title = uploaded_file.name.replace('.pdf', '').replace('.png', '').replace('.jpg', '')
 
     doc = MedicalDocument.objects.create(
@@ -280,7 +292,6 @@ def scan_document(request):
         file=uploaded_file
     )
 
-    # If medications were parsed in payload
     medications_data = request.data.get('medications', [])
     created_meds = []
     if isinstance(medications_data, list) and len(medications_data) > 0:
@@ -298,7 +309,6 @@ def scan_document(request):
             )
             created_meds.append(med)
     else:
-        # Default extracted medication for demonstration
         med = Medication.objects.create(
             patient=patient,
             document=doc,
@@ -312,12 +322,11 @@ def scan_document(request):
         )
         created_meds.append(med)
 
-    serializer = MedicalDocumentSerializer(doc)
     return Response({
         "success": True,
         "message": "Document successfully parsed and synced",
-        "document": serializer.data,
-        "allergy_warning": "Penicillin" in [m.name for m in created_meds] or any("amoxicillin" in m.name.lower() for m in created_meds)
+        "document": MedicalDocumentSerializer(doc).data,
+        "allergy_warning": any("amoxicillin" in m.name.lower() for m in created_meds) or any("penicillin" in m.name.lower() for m in created_meds)
     }, status=status.HTTP_201_CREATED)
 
 
@@ -348,10 +357,156 @@ def toggle_medication_taken(request, pk):
     med = Medication.objects.filter(pk=pk).first()
     if not med:
         return Response({"error": "Medication not found"}, status=status.HTTP_404_NOT_FOUND)
-
     med.taken_today = not med.taken_today
     med.save()
     return Response(MedicationSerializer(med).data)
+
+
+# ==============================================================================
+# 🤖 MULTILINGUAL AI AGENT & CHAT CONVERSATIONS (Hindi, English, Hinglish)
+# ==============================================================================
+
+@api_view(['GET', 'POST'])
+def conversations_list(request):
+    pid = request.query_params.get('patient_id') or request.data.get('patient_id')
+    patient = Patient.objects.filter(patient_id__iexact=pid).first() if pid else get_or_create_default_patient()
+
+    if request.method == 'POST':
+        title = request.data.get('title', 'New Consultation')
+        lang = request.data.get('language', 'en')
+        conv = Conversation.objects.create(
+            patient=patient,
+            title=title,
+            language=lang
+        )
+        # Add welcome message based on language
+        if lang == 'hi':
+            welcome = "नमस्ते! मैं आपका मेडीकिओस्क एआई डॉक्टर हूँ। मैं आपकी मेडिकल रिपोर्ट्स, दवाइयों और स्वास्थ्य के बारे में मदद कर सकता हूँ। आज आप कैसा महसूस कर रहे हैं?"
+            qr = ["दवाइयों की सुरक्षा जांचें", "मेरी स्कैन रिपोर्ट समझाएं", "मेरे वाइटल्स कैसे हैं?", "डॉक्टर से अपॉइंटमेंट"]
+        elif lang == 'hinglish':
+            welcome = "Namaste! Main aapka MediKiosk AI Doctor hoon. Aap mujhse Hindi ya Hinglish mein apni reports, dawaiyon aur health ke baare mein pooch sakte hain. Aaj aap kaisa feel kar rahe hain?"
+            qr = ["Dawai allergy check karein", "Meri scan report samjhayein", "Mere vitals kaise hain?", "Doctor appointment book karein"]
+        else:
+            welcome = "Hello! I am your MediKiosk AI Clinical Health Assistant. How can I help you with your symptoms, prescriptions, or reports today?"
+            qr = ["Check drug allergy safety", "Explain latest scan report", "How are my vitals?", "Book doctor consultation"]
+
+        ChatMessage.objects.create(
+            conversation=conv,
+            patient=patient,
+            sender="agent",
+            text=welcome,
+            language=lang,
+            quick_replies=qr
+        )
+
+        return Response(ConversationSerializer(conv).data, status=status.HTTP_201_CREATED)
+
+    convs = Conversation.objects.filter(patient=patient)
+    return Response(ConversationSerializer(convs, many=True).data)
+
+
+@api_view(['GET', 'DELETE'])
+def conversation_detail(request, pk):
+    conv = Conversation.objects.filter(pk=pk).first()
+    if not conv:
+        return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        conv.delete()
+        return Response({"success": True, "message": "Conversation deleted"})
+
+    # GET messages for this conversation
+    messages = conv.messages.all()
+    return Response({
+        "conversation": ConversationSerializer(conv).data,
+        "messages": ChatMessageSerializer(messages, many=True).data
+    })
+
+
+def call_external_llm(user_query, language, patient, api_key=None, provider='gemini', model='gemini-1.5-flash'):
+    """
+    Calls Google Gemini or OpenAI API if API key is provided.
+    Includes patient clinical context and language instructions.
+    """
+    active_key = api_key or getattr(settings, 'LLM_API_KEY', '')
+    if not active_key or active_key == 'your_api_key_here':
+        return None
+
+    # Construct clinical system context
+    v = patient.vitals_history.first()
+    meds = [f"{m.name} ({m.dose}, {m.timing})" for m in patient.medications.filter(status="Active")]
+    docs = [f"{d.title} ({d.doc_type})" for d in patient.documents.all()]
+    allergies = ", ".join(patient.allergies) if patient.allergies else "None"
+
+    system_instruction = (
+        f"You are the MediKiosk AI Clinical Doctor Assistant in a hospital kiosk.\n"
+        f"Patient Information:\n"
+        f"- Name: {patient.name}, Age: {patient.age}, Gender: {patient.gender}, Blood: {patient.blood_group}\n"
+        f"- Documented Allergies: {allergies}\n"
+        f"- Active Medications: {', '.join(meds) if meds else 'None'}\n"
+        f"- Latest Vitals: Heart Rate {v.heart_rate if v else 74} bpm, BP {v.bp_systolic if v else 118}/{v.bp_diastolic if v else 78} mmHg, SpO2 {v.spo2 if v else 99}%\n"
+        f"- Clinical Documents on File: {', '.join(docs) if docs else 'None'}\n\n"
+        f"CRITICAL SAFETY RULE:\n"
+        f"If the patient asks about taking Amoxicillin, Ampicillin, or Penicillin-class drugs and has a Penicillin allergy, "
+        f"YOU MUST IMMEDIATELY ISSUE A CLEAR CONTRAINDICATION WARNING advising them NOT to take it without consulting their doctor Dr. Michael Chen.\n\n"
+        f"LANGUAGE INSTRUCTION:\n"
+    )
+
+    if language == 'hi':
+        system_instruction += "Respond in clear, natural, compassionate HINDI (हिंदी देवनागरी लिपि में). Explain medical terms in simple Hindi."
+    elif language == 'hinglish':
+        system_instruction += "Respond in natural, conversational HINGLISH (Hindi written in English alphabet, e.g. 'Aapka blood pressure bilkul normal hai. Lekin penicillin allergy ka dhyan rakhein.')."
+    else:
+        system_instruction += "Respond in clear, compassionate, medically accurate ENGLISH."
+
+    try:
+        # 1. Google Gemini API call
+        if provider == 'gemini' or 'gemini' in model:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={active_key}"
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": f"{system_instruction}\n\nPatient Query: {user_query}"}]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.3,
+                    "maxOutputTokens": 600
+                }
+            }
+            resp = requests.post(url, json=payload, timeout=12)
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data['candidates'][0]['content']['parts'][0]['text']
+                return text.strip()
+
+        # 2. OpenAI API call
+        elif provider == 'openai' or 'gpt' in model:
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {active_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model or "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_query}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 600
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=12)
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data['choices'][0]['message']['content']
+                return text.strip()
+
+    except Exception as e:
+        print(f"External LLM call failed: {e}")
+
+    return None
 
 
 @api_view(['GET', 'POST'])
@@ -361,100 +516,229 @@ def agent_chat(request):
 
     if request.method == 'POST':
         user_text = request.data.get('text', '').strip()
+        conv_id = request.data.get('conversation_id')
+        language = request.data.get('language', 'en').lower() # 'en', 'hi', 'hinglish'
+        user_api_key = request.data.get('api_key', '').strip()
+
         if not user_text:
             return Response({"error": "Message text is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Save user message
+        # Find or create conversation
+        conversation = None
+        if conv_id:
+            conversation = Conversation.objects.filter(pk=conv_id, patient=patient).first()
+        if not conversation:
+            # Auto-title based on first prompt
+            title = user_text[:35] + ('...' if len(user_text) > 35 else '')
+            conversation = Conversation.objects.create(
+                patient=patient,
+                title=title,
+                language=language
+            )
+
+        # Save patient message
         ChatMessage.objects.create(
+            conversation=conversation,
             patient=patient,
             sender="patient",
-            text=user_text
+            text=user_text,
+            language=language
         )
 
-        # Intelligent Clinical Evaluation Engine
+        # Auto-update conversation title if default
+        if conversation.title in ["New Consultation", "General Health Consultation", "Welcome Consultation"] and conversation.messages.count() <= 3:
+            conversation.title = user_text[:35] + ('...' if len(user_text) > 35 else '')
+            conversation.save()
+
         lower_query = user_text.lower()
         urgency = "normal"
         reply_text = ""
-        quick_replies = [
-            "Check drug interactions",
-            "Explain my latest scan",
-            "How are my vitals today?",
-            "Book clinic consultation"
-        ]
+        quick_replies = []
 
-        # Clinical Allergy & Drug Safety Check
+        # Check for Penicillin / Amoxicillin contraindication
         has_penicillin_allergy = any("penicillin" in a.lower() for a in patient.allergies)
-        if ("amoxicillin" in lower_query or "allergy" in lower_query or "interaction" in lower_query or "safe" in lower_query) and has_penicillin_allergy:
-            urgency = "alert"
-            reply_text = (
-                "⚠️ CRITICAL ALLERGY CONTRAINDICATION ALERT:\n"
-                f"Your chart indicates an allergy to: {', '.join(patient.allergies)}.\n"
-                "Amoxicillin belongs to the penicillin class of antibiotics. Taking it may cause an allergic reaction.\n"
-                "Recommendation: Do NOT start this medication until speaking with Dr. Michael Chen or your attending pharmacist for a non-penicillin alternative (such as Azithromycin or Clarithromycin)."
+        is_allergy_query = ("amoxicillin" in lower_query or "allergy" in lower_query or "penicillin" in lower_query or "safe" in lower_query or "surakshit" in lower_query or "nuksan" in lower_query)
+
+        # Attempt to call live LLM API if key is present
+        external_reply = call_external_llm(
+            user_query=user_text,
+            language=language,
+            patient=patient,
+            api_key=user_api_key
+        )
+
+        if external_reply:
+            reply_text = external_reply
+            if is_allergy_query and has_penicillin_allergy:
+                urgency = "alert"
+            quick_replies = (
+                ["डॉक्टर से बात करें", "दूसरी दवा पूछें", "वाइटल्स चेक करें"] if language == 'hi' else
+                ["Doctor se consult karein", "Alternative medicine", "Vitals check karein"] if language == 'hinglish' else
+                ["Call Doctor Now", "Request Alternative Medication", "Review All Allergies"]
             )
-            quick_replies = ["Call Doctor Now", "Request Alternative Medication", "Review All Allergies"]
-
-        elif "scan" in lower_query or "x-ray" in lower_query or "xray" in lower_query or "radiology" in lower_query:
-            reply_text = (
-                "I've examined your Chest Radiography report from Advanced Imaging Center. "
-                "The findings are completely normal: clear lung fields, no signs of pneumonia, consolidation, "
-                "or fluid, and a normal cardiothoracic ratio (0.45). Everything looks clear!"
-            )
-            quick_replies = ["Explain lab blood panel", "View scan document", "Print summary"]
-
-        elif "lab" in lower_query or "blood" in lower_query or "cholesterol" in lower_query or "glucose" in lower_query:
-            reply_text = (
-                "Your latest BioPath Comprehensive Metabolic Panel shows healthy metrics:\n"
-                "• Fasting Glucose: 92 mg/dL (Normal target: 70-99)\n"
-                "• Hemoglobin: 13.8 g/dL (Healthy range)\n"
-                "• Total Cholesterol: 198 mg/dL (Desirable <200)\n"
-                "• HDL 'Good' Cholesterol: 58 mg/dL (Optimal >50)\n"
-                "Your metabolic health markers are in good standing."
-            )
-            quick_replies = ["Check medication schedule", "Dietary suggestions", "Print lab report"]
-
-        elif "vital" in lower_query or "bp" in lower_query or "pressure" in lower_query or "heart" in lower_query:
-            v = patient.vitals_history.first()
-            reply_text = (
-                f"Your live kiosk vitals are optimal:\n"
-                f"• Heart Rate: {v.heart_rate if v else 74} bpm (Normal resting rhythm)\n"
-                f"• Blood Pressure: {v.bp_systolic if v else 118}/{v.bp_diastolic if v else 78} mmHg (Standard target)\n"
-                f"• Oxygen Saturation (SpO2): {v.spo2 if v else 99}%\n"
-                f"• Body Temperature: {v.temperature if v else 98.4}°F (Afebril)"
-            )
-            quick_replies = ["Re-check vitals", "Medication schedule", "Consult nurse"]
-
-        elif "schedule" in lower_query or "timing" in lower_query or "take" in lower_query or "dose" in lower_query:
-            active_meds = patient.medications.filter(status="Active")
-            med_lines = [f"• {m.name} ({m.dose}): {m.timing} - {m.instruction}" for m in active_meds]
-            reply_text = "Here is your daily medication schedule:\n" + "\n".join(med_lines) + "\n\nRemember to stay hydrated and mark doses as taken in your app!"
-            quick_replies = ["Mark morning doses taken", "Set refill alert", "Ask allergy check"]
-
-        elif "doctor" in lower_query or "appointment" in lower_query or "consult" in lower_query:
-            reply_text = (
-                f"Your primary physician is {patient.primary_doctor}. "
-                "Clinic office hours are Monday–Friday 8:00 AM - 5:00 PM. "
-                "Would you like me to request an in-person follow-up or a telemedicine consultation?"
-            )
-            quick_replies = ["Request Tomorrow 11:30 AM", "Request Telehealth Call", "Message Doctor Office"]
-
         else:
-            reply_text = (
-                f"Thank you, {patient.name.split()[0]}. I'm actively monitoring your chart. "
-                "You can ask me to explain any scan results, review drug interactions, check your vital signs, "
-                "or assist with doctor scheduling. How can I best help you right now?"
-            )
+            # Built-in Clinical Intelligence Engine (Hindi / English / Hinglish)
+            if is_allergy_query and has_penicillin_allergy:
+                urgency = "alert"
+                if language == 'hi':
+                    reply_text = (
+                        "⚠️ अत्यंत महत्वपूर्ण एलर्जी चेतावनी (Critical Allergy Alert):\n"
+                        f"आपकी मेडिकल फाइल के अनुसार आपको {', '.join(patient.allergies)} से गंभीर एलर्जी है।\n"
+                        "Amoxicillin दवा पेनिसिलिन वर्ग (Penicillin-class) की एंटीबायोटिक है। इसे लेने से आपको रिएक्शन हो सकता है।\n"
+                        "सलाह: डॉक्टर माइकल चेन (Dr. Michael Chen) या फार्मासिस्ट से परामर्श किए बिना यह दवा बिल्कुल न लें। वे आपको सुरक्षित गैर-पेनिसिलिन विकल्प (जैसे Azithromycin) देंगे।"
+                    )
+                    quick_replies = ["डॉक्टर से तुरंत संपर्क करें", "वैकल्पिक दवा पूछें", "एलर्जी सूची देखें"]
+                elif language == 'hinglish':
+                    reply_text = (
+                        "⚠️ CRITICAL DRUG ALLERGY WARNING:\n"
+                        f"Aapki medical profile ke mutabiq aapko {', '.join(patient.allergies)} se allergy hai.\n"
+                        "Amoxicillin ek Penicillin-class antibiotic hai. Isse lene se allergic reaction ho sakta hai.\n"
+                        "Doctor ki Sallah: Amoxicillin lene se pehle apne doctor Dr. Michael Chen se zaroor baat karein taaki wo aapko safe non-penicillin dawai (jaise Azithromycin) prescribe kar sakein."
+                    )
+                    quick_replies = ["Doctor se consult karein", "Alternative dawai poochhein", "Allergies review karein"]
+                else:
+                    reply_text = (
+                        "⚠️ CRITICAL DRUG ALLERGY CONTRAINDICATION ALERT:\n"
+                        f"Your chart indicates an allergy to: {', '.join(patient.allergies)}.\n"
+                        "Amoxicillin belongs to the penicillin class of antibiotics. Taking it may cause an allergic reaction.\n"
+                        "Recommendation: Do NOT start this medication until speaking with Dr. Michael Chen or your attending pharmacist for a safe non-penicillin alternative (such as Azithromycin or Clarithromycin)."
+                    )
+                    quick_replies = ["Call Doctor Now", "Request Alternative Medication", "Review All Allergies"]
 
+            elif "scan" in lower_query or "x-ray" in lower_query or "xray" in lower_query or "radiology" in lower_query or "report" in lower_query:
+                if language == 'hi':
+                    reply_text = (
+                        "मैंने आपकी एडवांस्ड इमेजिंग सेंटर से आई चेस्ट एक्स-रे (Chest X-Ray) रिपोर्ट देखी है। "
+                        "परिणाम बिल्कुल सामान्य (Normal) हैं: फेफड़े पूरी तरह साफ हैं, कोई निमोनिया या संक्रमण नहीं है, "
+                        "और हृदय का अनुपात (Cardiothoracic ratio 0.45) स्वस्थ है। चिंता की कोई बात नहीं है।"
+                    )
+                    quick_replies = ["ब्लड टेस्ट रिपोर्ट समझाएं", "दवाइयों का समय", "प्रिंट समरी"]
+                elif language == 'hinglish':
+                    reply_text = (
+                        "Maine aapka Chest X-Ray report review kiya hai. "
+                        "Aapke lungs bilkul clear hain, koi pneumonia ya fluid nahi hai, aur cardiothoracic ratio (0.45) normal hai. "
+                        "Overall aapki radiographic study bilkul healthy hai!"
+                    )
+                    quick_replies = ["Blood test report samjhayein", "Dawai schedule dekhein", "Print summary"]
+                else:
+                    reply_text = (
+                        "I've examined your Chest Radiography report from Advanced Imaging Center. "
+                        "The findings are completely normal: clear lung fields, no signs of pneumonia or consolidation, "
+                        "and a normal cardiothoracic ratio (0.45). Everything looks clear!"
+                    )
+                    quick_replies = ["Explain blood test panel", "Check medication schedule", "Print report"]
+
+            elif "vital" in lower_query or "bp" in lower_query or "pressure" in lower_query or "heart" in lower_query or "pulse" in lower_query or "dhadkan" in lower_query:
+                v = patient.vitals_history.first()
+                if language == 'hi':
+                    reply_text = (
+                        f"आपके कियोस्क पर लिए गए वाइटल्स बिल्कुल स्वस्थ हैं:\n"
+                        f"• पल्स (हार्ट रेट): {v.heart_rate if v else 74} bpm (सामान्य धड़कन)\n"
+                        f"• ब्लड प्रेशर (BP): {v.bp_systolic if v else 118}/{v.bp_diastolic if v else 78} mmHg (आदर्श रेंज)\n"
+                        f"• ऑक्सीजन (SpO2): {v.spo2 if v else 99}% (उत्कृष्ट)\n"
+                        f"• तापमान: {v.temperature if v else 98.4}°F (बुखार नहीं है)"
+                    )
+                    quick_replies = ["दोबारा वाइटल्स मापें", "दवाइयों का समय", "डॉक्टर से सलाह"]
+                elif language == 'hinglish':
+                    reply_text = (
+                        f"Aapke live kiosk vitals bilkul normal aur healthy hain:\n"
+                        f"• Heart Rate: {v.heart_rate if v else 74} bpm (Normal resting rhythm)\n"
+                        f"• Blood Pressure (BP): {v.bp_systolic if v else 118}/{v.bp_diastolic if v else 78} mmHg (Optimal standard)\n"
+                        f"• Oxygen (SpO2): {v.spo2 if v else 99}% (Well oxygenated)\n"
+                        f"• Body Temperature: {v.temperature if v else 98.4}°F (Normal)"
+                    )
+                    quick_replies = ["Dobara vitals check karein", "Dawai schedule dekhein", "Nurse ko bulayein"]
+                else:
+                    reply_text = (
+                        f"Your live kiosk vitals are optimal:\n"
+                        f"• Heart Rate: {v.heart_rate if v else 74} bpm (Normal resting rhythm)\n"
+                        f"• Blood Pressure: {v.bp_systolic if v else 118}/{v.bp_diastolic if v else 78} mmHg (Standard target)\n"
+                        f"• Oxygen Saturation (SpO2): {v.spo2 if v else 99}%\n"
+                        f"• Body Temperature: {v.temperature if v else 98.4}°F (Normothermic)"
+                    )
+                    quick_replies = ["Re-check vitals", "Medication schedule", "Consult nurse"]
+
+            elif "schedule" in lower_query or "timing" in lower_query or "dawai" in lower_query or "medicine" in lower_query or "kab" in lower_query or "dose" in lower_query:
+                active_meds = patient.medications.filter(status="Active")
+                if language == 'hi':
+                    med_lines = [f"• {m.name} ({m.dose}): {m.timing} - {m.instruction}" for m in active_meds]
+                    reply_text = "यहाँ आपकी दैनिक दवाइयों का समय है:\n" + "\n".join(med_lines) + "\n\nदवा लेने के बाद कियोस्क ऐप में चेक-ऑफ (Mark Taken) करना न भूलें।"
+                    quick_replies = ["सुबह की खुराक ली", "एलर्जी जांचें", "प्रिंट समरी"]
+                elif language == 'hinglish':
+                    med_lines = [f"• {m.name} ({m.dose}): {m.timing} - {m.instruction}" for m in active_meds]
+                    reply_text = "Yeh raha aapka daily medication schedule:\n" + "\n".join(med_lines) + "\n\nPaanie zyaada piyein aur dawai lene ke baad app mein check-off karein."
+                    quick_replies = ["Morning dose mark karein", "Refill alert", "Allergy check"]
+                else:
+                    med_lines = [f"• {m.name} ({m.dose}): {m.timing} - {m.instruction}" for m in active_meds]
+                    reply_text = "Here is your active medication schedule:\n" + "\n".join(med_lines) + "\n\nRemember to stay hydrated and mark doses as taken in your portal."
+                    quick_replies = ["Mark morning doses taken", "Set refill alert", "Ask allergy check"]
+
+            elif "doctor" in lower_query or "appointment" in lower_query or "milna" in lower_query:
+                if language == 'hi':
+                    reply_text = (
+                        f"आपके प्राथमिक चिकित्सक {patient.primary_doctor} हैं। "
+                        "क्लीनिक के समय सोमवार से शुक्रवार सुबह 8:00 बजे से शाम 5:00 बजे तक हैं। "
+                        "क्या आप कल सुबह 11:30 बजे के लिए अपॉइंटमेंट बुक करना चाहते हैं?"
+                    )
+                    quick_replies = ["हाँ, कल 11:30 AM बुक करें", "टेलीकंसल्टेशन चाहिए", "डॉक्टर को संदेश भेजें"]
+                elif language == 'hinglish':
+                    reply_text = (
+                        f"Aapke primary doctor {patient.primary_doctor} hain. "
+                        "Clinic office hours Monday–Friday 8:00 AM se 5:00 PM tak hain. "
+                        "Kya aap kal subah 11:30 AM ke liye slot reserve karna chahte hain?"
+                    )
+                    quick_replies = ["Yes, kal 11:30 AM book karein", "Telehealth call", "Message doctor office"]
+                else:
+                    reply_text = (
+                        f"Your primary physician is {patient.primary_doctor}. "
+                        "Office hours are Monday–Friday 8:00 AM - 5:00 PM. "
+                        "Would you like me to reserve an in-person follow-up appointment tomorrow at 11:30 AM?"
+                    )
+                    quick_replies = ["Request Tomorrow 11:30 AM", "Request Telehealth Call", "Message Doctor Office"]
+
+            else:
+                first_name = patient.name.split()[0]
+                if language == 'hi':
+                    reply_text = (
+                        f"नमस्ते {first_name}! मैं आपकी मेडिकल रिपोर्ट, स्कैन परिणाम, वाइटल्स (BP, धड़कन) "
+                        "और दवाइयों के बारे में सभी सवालों का जवाब दे सकता हूँ। आप मुझसे हिंदी, English या Hinglish में बात कर सकते हैं। आप क्या जानना चाहते हैं?"
+                    )
+                    quick_replies = ["मेरी स्कैन रिपोर्ट समझाएं", "दवाइयों का समय", "वाइटल्स चेक करें"]
+                elif language == 'hinglish':
+                    reply_text = (
+                        f"Namaste {first_name}! Main aapki reports, lab results, vitals aur prescriptions ke baare mein complete assistance de sakta hoon. "
+                        "Aap mujhse English, Hindi ya Hinglish mein baat kar sakte hain. Aap kya poochhna chahenge?"
+                    )
+                    quick_replies = ["Scan report samjhayein", "Dawai schedule", "Vitals check karein"]
+                else:
+                    reply_text = (
+                        f"Hello {first_name}! I am monitoring your clinical chart. "
+                        "I can explain your scans, check drug interactions, review vital signs, or help you book doctor visits. "
+                        "How can I assist you right now?"
+                    )
+                    quick_replies = ["Explain my latest scan", "Check drug interactions", "How are my vitals?"]
+
+        # Save Agent reply
         agent_msg = ChatMessage.objects.create(
+            conversation=conversation,
             patient=patient,
             sender="agent",
             text=reply_text,
+            language=language,
             urgency=urgency,
             quick_replies=quick_replies
         )
 
-        return Response(ChatMessageSerializer(agent_msg).data, status=status.HTTP_201_CREATED)
+        return Response({
+            "message": ChatMessageSerializer(agent_msg).data,
+            "conversation_id": conversation.id,
+            "conversation_title": conversation.title
+        }, status=status.HTTP_201_CREATED)
 
-    # GET: return list of messages
-    messages = ChatMessage.objects.filter(patient=patient)
+    # GET: return list of messages for default or specified conversation
+    conv_id = request.query_params.get('conversation_id')
+    if conv_id:
+        messages = ChatMessage.objects.filter(conversation_id=conv_id)
+    else:
+        messages = ChatMessage.objects.filter(patient=patient)
     return Response(ChatMessageSerializer(messages, many=True).data)

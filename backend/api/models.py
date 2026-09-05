@@ -74,10 +74,26 @@ class Medication(models.Model):
         return f"{self.name} - {self.patient.name}"
 
 
+class Conversation(models.Model):
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="conversations")
+    title = models.CharField(max_length=128, default="New Consultation")
+    language = models.CharField(max_length=16, default="en") # "en", "hi", "hinglish"
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"{self.title} ({self.language})"
+
+
 class ChatMessage(models.Model):
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="messages", null=True, blank=True)
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="chat_messages")
     sender = models.CharField(max_length=16, default="agent") # 'patient' or 'agent'
     text = models.TextField()
+    language = models.CharField(max_length=16, default="en") # 'en', 'hi', 'hinglish'
     urgency = models.CharField(max_length=16, default="normal") # 'normal', 'caution', 'alert'
     quick_replies = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

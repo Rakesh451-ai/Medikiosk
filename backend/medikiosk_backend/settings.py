@@ -95,3 +95,11 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.FormParser',
     ],
 }
+
+# Load environment variables from .env
+from dotenv import load_dotenv
+load_dotenv(BASE_DIR / '.env')
+
+LLM_API_KEY = os.getenv('LLM_API_KEY', '')
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'gemini')
+LLM_MODEL = os.getenv('LLM_MODEL', 'gemini-1.5-flash')
