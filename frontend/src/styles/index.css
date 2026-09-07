@@ -29,3 +29,59 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Document scanning laser effect */
+@keyframes laserScan {
+  0% {
+    top: 5%;
+    opacity: 0.9;
+  }
+  50% {
+    top: 85%;
+    opacity: 0.5;
+  }
+  100% {
+    top: 5%;
+    opacity: 0.9;
+  }
+}
+
+.laser-line {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #4ade80, #ffffff, #4ade80, transparent);
+  box-shadow: 0 0 15px #4ade80, 0 0 25px #22c55e;
+  animation: laserScan 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Accessibility Large Text Mode */
+body.kiosk-large-text {
+  font-size: 115%;
+}
+
+body.kiosk-large-text .text-xs {
+  font-size: 0.85rem !important;
+}
+
+body.kiosk-large-text .text-sm {
+  font-size: 1rem !important;
+}
+
+body.kiosk-large-text .text-base {
+  font-size: 1.15rem !important;
+}
+
+body.kiosk-large-text .text-lg {
+  font-size: 1.3rem !important;
+}
+
+body.kiosk-large-text .text-xl {
+  font-size: 1.5rem !important;
+}
+
+body.kiosk-large-text .text-2xl {
+  font-size: 1.8rem !important;
+}
