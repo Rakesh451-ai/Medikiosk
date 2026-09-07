@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Navbar } from './components/layout/Navbar';
 import { BottomNav } from './components/layout/BottomNav';
-import { Footer } from './components/layout/Footer';
 import { HomePage } from './pages/HomePage';
 import { ScannerPage } from './pages/ScannerPage';
 import { SummaryPage } from './pages/SummaryPage';
@@ -50,16 +48,9 @@ export default function App() {
   return (
     <Router>
       <div className="min-h-screen w-full bg-[#f0f7f4] text-slate-800 font-sans flex flex-col selection:bg-emerald-600 selection:text-white">
-        
-        {/* Universal Header with working URLs in every page */}
-        <Navbar
-          patient={patient}
-          onPatientUpdated={handlePatientUpdated}
-          apiStatus={apiStatus}
-        />
 
-        {/* Multi-Page Routes with mobile safe padding for bottom nav */}
-        <main className="flex-1 w-full flex flex-col pb-20 md:pb-0">
+        {/* Multi-Page Routes with universal bottom padding for the fixed dock navigation */}
+        <main className="flex-1 w-full flex flex-col pb-28 md:pb-32">
           <Routes>
             <Route
               path="/"
@@ -69,6 +60,7 @@ export default function App() {
                   vitals={vitals}
                   medications={medications}
                   documents={documents}
+                  onPatientUpdated={handlePatientUpdated}
                 />
               }
             />
@@ -116,10 +108,8 @@ export default function App() {
           </Routes>
         </main>
 
-        {/* Universal Footer */}
-        <Footer />
 
-        {/* Responsive Mobile Bottom Navigation Bar */}
+        {/* Universal Bottom Navigation Dock for PC, Tablets & Mobile */}
         <BottomNav documentsCount={documents.length} />
       </div>
     </Router>

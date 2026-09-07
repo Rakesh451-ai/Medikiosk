@@ -3,14 +3,30 @@ import { Link } from 'react-router-dom';
 import {
   Camera, Activity, Bot, FileText, ArrowRight, ShieldCheck,
   Heart, Sparkles, AlertTriangle, Pill, CheckCircle2, ChevronRight,
-  Droplet, Thermometer, Smile, HeartPulse, HelpCircle, Shield
+  Droplet, Thermometer, Smile, HeartPulse, HelpCircle, Shield,
+  User, KeyRound, LogOut
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
+import { Input } from '../components/ui/Input';
+import { api } from '../services/api';
+import { features } from '../data/features';
+import accountCircleIcon from '../icons/accountCircle.svg';
 
-export function HomePage({ patient, vitals, medications = [], documents = [] }) {
+export function HomePage({
+  patient,
+  vitals,
+  medications = [],
+  documents = [],
+  onPatientUpdated
+}) {
   const [selectedMood, setSelectedMood] = useState(null);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [inputPatientId, setInputPatientId] = useState('MK-78294');
+  const [inputPin, setInputPin] = useState('1234');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Dynamic time-based friendly greeting
   const getGreeting = () => {
@@ -20,52 +36,46 @@ export function HomePage({ patient, vitals, medications = [], documents = [] }) 
     return 'Good evening';
   };
 
-  const features = [
-    {
-      title: "Scan Prescription or Slip",
-      description: "Hold your doctor's slip or lab report under the camera. The kiosk reads it clearly in seconds.",
-      icon: Camera,
-      to: "/scanner",
-      tag: "1-Tap Camera Scan",
-      gradient: "from-emerald-600 to-teal-700",
-      bgSoft: "bg-emerald-50 text-emerald-800 border-emerald-200",
-      iconBg: "bg-emerald-600 text-white",
-      actionText: "Scan My Paper"
-    },
-    {
-      title: "My Health & Vitals",
-      description: "See your heart rate, blood pressure, oxygen, and daily medicines explained in plain, comforting words.",
-      icon: Activity,
-      to: "/summary",
-      tag: "Heart & Numbers",
-      gradient: "from-teal-600 to-emerald-800",
-      bgSoft: "bg-teal-50 text-teal-800 border-teal-200",
-      iconBg: "bg-teal-700 text-white",
-      actionText: "View My Health"
-    },
-    {
-      title: "Ask Health Assistant",
-      description: "Have questions about pills or symptoms? Talk naturally with our voice-enabled friendly assistant.",
-      icon: Bot,
-      to: "/agent",
-      tag: "Voice & Chat",
-      gradient: "from-emerald-700 to-green-900",
-      bgSoft: "bg-emerald-50 text-emerald-800 border-emerald-200",
-      iconBg: "bg-emerald-800 text-white",
-      actionText: "Talk to Assistant"
-    },
-    {
-      title: "Past Medical Records",
-      description: "Browse previous doctor prescriptions, blood tests, and scans safely kept in your personal record.",
-      icon: FileText,
-      to: "/records",
-      tag: "Private & Safe",
-      gradient: "from-teal-700 to-cyan-800",
-      bgSoft: "bg-cyan-50 text-cyan-800 border-cyan-200",
-      iconBg: "bg-teal-800 text-white",
-      actionText: "Browse Records"
+  const handleQuickPatient = (name, id, pin, blood, age) => {
+    setInputPatientId(id);
+    setInputPin(pin);
+    if (onPatientUpdated) {
+      onPatientUpdated({
+        patient_id: id,
+        name: name,
+        age: age,
+        blood_group: blood,
+        allergies: ['Penicillin'],
+        latest_vitals: {
+          heart_rate: 72,
+          bp_systolic: 120,
+          bp_diastolic: 80,
+          spo2: 98,
+          temperature: 98.6,
+          glucose: 95
+        }
+      });
     }
-  ];
+    setShowAccountModal(false);
+  };
+
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    try {
+      const res = await api.login(inputPatientId, inputPin);
+      if (onPatientUpdated) {
+        onPatientUpdated(res.patient);
+      }
+      setShowAccountModal(false);
+    } catch {
+      setShowAccountModal(false);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+
 
   const moodResponses = {
     calm: {
@@ -94,19 +104,49 @@ export function HomePage({ patient, vitals, medications = [], documents = [] }) 
       <div className="absolute top-48 right-10 w-96 h-96 rounded-full bg-teal-200/25 blur-3xl pointer-events-none -z-10"></div>
       <div className="absolute bottom-20 left-10 w-96 h-96 rounded-full bg-green-200/20 blur-3xl pointer-events-none -z-10"></div>
 
-      {/* Reassuring Top Calming Notification Ribbon */}
-      <div className="w-full bg-[#184a32]/95 backdrop-blur-md text-emerald-100 text-xs py-2 px-4 border-b border-emerald-800/40 flex items-center justify-center gap-2 shadow-xs text-center">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-        <span className="font-medium tracking-wide">
-          🌿 You are in a safe, quiet health space. Take your time — no rush.
-        </span>
-      </div>
+      {/* Top Header Bar with Calming Space Banner & User Account Icon on the Top Right */}
+      <header className="w-full bg-[#184a32]/95 backdrop-blur-md text-emerald-100 py-2.5 px-4 sm:px-6 lg:px-8 border-b border-emerald-800/40 shadow-xs z-20">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+
+          {/* Left: Reassuring Safe Health Space Ribbon */}
+          <div className="flex items-center gap-2 text-xs font-medium text-emerald-200">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span className="hidden sm:inline">🌿 You are in a safe, quiet health space. Take your time — no rush.</span>
+            <span className="inline sm:hidden font-bold">🌿 MediKiosk Portal</span>
+          </div>
+
+          {/* Right: User Account Icon & Profile Button */}
+          <button
+            type="button"
+            onClick={() => setShowAccountModal(true)}
+            className="flex items-center gap-2 sm:gap-2.5 py-1 px-2.5 sm:py-1.5 sm:px-3.5 rounded-full bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-400/40 text-white transition-all duration-200 shadow-sm cursor-pointer group hover:scale-[1.03] active:scale-95 shrink-0"
+            title="My Health Account"
+            aria-label="User Account Profile"
+          >
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-300 text-[#0f2e1f] font-black text-xs sm:text-sm flex items-center justify-center shadow-xs group-hover:ring-2 group-hover:ring-emerald-300 overflow-hidden">
+              <img src={accountCircleIcon} alt="Account" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
+            </div>
+            <div className="text-left hidden xs:block">
+              <div className="text-xs font-black text-white flex items-center gap-1.5 leading-tight">
+                <span>{patient?.name || 'Sarah Jenkins'}</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-emerald-700/80 text-emerald-200 rounded-md font-mono">
+                  {patient?.blood_group || 'A+'}
+                </span>
+              </div>
+              <div className="text-[10px] text-emerald-300/80 font-mono mt-0.5">
+                ID: {patient?.patient_id || 'MK-78294'}
+              </div>
+            </div>
+          </button>
+
+        </div>
+      </header>
 
       {/* Main Container */}
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-6 sm:space-y-8">
 
         {/* Hero Section: Welcoming & Stress-Relieving */}
-        <section className="bg-white/85 backdrop-blur-md rounded-3xl p-6 sm:p-8 lg:p-10 shadow-[0_10px_35px_rgba(18,56,38,0.06)] border border-emerald-900/10 flex flex-col lg:flex-row items-center justify-between gap-8 transition-all">
+        <section className="bg-white/85 backdrop-blur-md rounded-3xl p-6 sm:p-8 lg:p-10 shadow-[0_10px_35px_rgba(18,56,38,0.06)] border border-emerald-900/10 flex flex-col lg:flex-column items-center justify-between gap-8 transition-all">
 
           <div className="space-y-4 max-w-2xl text-center lg:text-left">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0f2e1f] tracking-tight leading-[1.15]">
@@ -157,8 +197,8 @@ export function HomePage({ patient, vitals, medications = [], documents = [] }) 
                     key={mood.id}
                     onClick={() => setSelectedMood(mood.id)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${selectedMood === mood.id
-                        ? 'bg-[#184a32] text-white border-[#184a32] shadow-xs'
-                        : 'bg-emerald-50/70 hover:bg-emerald-100 text-[#143d2b] border-emerald-200'
+                      ? 'bg-[#184a32] text-white border-[#184a32] shadow-xs'
+                      : 'bg-emerald-50/70 hover:bg-emerald-100 text-[#143d2b] border-emerald-200'
                       }`}
                   >
                     <span>{mood.emoji}</span>
@@ -431,6 +471,117 @@ export function HomePage({ patient, vitals, medications = [], documents = [] }) 
         </section>
 
       </div>
+
+      {/* USER ACCOUNT & PATIENT PROFILE MODAL */}
+      <Modal
+        isOpen={showAccountModal}
+        onClose={() => setShowAccountModal(false)}
+        title="My Patient Account"
+        subtitle="View personal health identity and account settings"
+        icon={User}
+      >
+        <div className="space-y-4 text-xs text-gray-900">
+
+          {/* Active Profile Banner */}
+          <div className="p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-[#184a32] text-white font-black text-xl flex items-center justify-center shadow-xs">
+                {patient?.name?.[0] || 'S'}
+              </div>
+              <div>
+                <h4 className="font-extrabold text-sm sm:text-base text-[#0f2e1f]">
+                  {patient?.name || 'Sarah Jenkins'}
+                </h4>
+                <p className="text-xs text-slate-600 font-mono">
+                  Card ID: <strong className="text-slate-900">{patient?.patient_id || 'MK-78294'}</strong>
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {patient?.gender || 'Female'}, {patient?.age || 38} years old
+                </p>
+              </div>
+            </div>
+            <Badge variant="success" className="px-3 py-1 text-xs">
+              {patient?.blood_group || 'A+'}
+            </Badge>
+          </div>
+
+          {/* Clinical Chart Details */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+              <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wider">Primary Doctor</span>
+              <p className="font-bold text-gray-900 mt-0.5">{patient?.primary_doctor || 'Dr. Michael Chen, MD'}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+              <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wider">Emergency Contact</span>
+              <p className="font-bold text-gray-900 mt-0.5">{patient?.emergency_contact || '+1 (555) 234-8901'}</p>
+            </div>
+          </div>
+
+          {/* Known Allergies Alert */}
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 flex items-center gap-2 font-medium">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>Documented Allergy: <strong className="font-black">{patient?.allergies?.join(', ') || 'Penicillin'}</strong></span>
+          </div>
+
+          {/* 1-Click Fast Profile Switch */}
+          <div className="pt-2 border-t border-gray-100">
+            <span className="text-xs font-bold text-gray-700 block mb-2">⚡ 1-Click Quick Demo Switch:</span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickPatient('Sarah Jenkins', 'MK-78294', '1234', 'A+', 38)}
+                className="p-2.5 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-200 text-left transition cursor-pointer shadow-2xs"
+              >
+                <p className="font-bold text-xs text-[#0f2e1f]">Sarah Jenkins</p>
+                <p className="text-[10px] text-gray-500">MK-78294 • Adult (A+)</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickPatient('Robert Davis', 'MK-91042', '5678', 'O+', 68)}
+                className="p-2.5 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-200 text-left transition cursor-pointer shadow-2xs"
+              >
+                <p className="font-bold text-xs text-[#0f2e1f]">Robert Davis</p>
+                <p className="text-[10px] text-gray-500">MK-91042 • Senior (O+)</p>
+              </button>
+            </div>
+          </div>
+
+          {/* Manual Card Check-In Form */}
+          <form onSubmit={handleLoginSubmit} className="space-y-3 pt-2 border-t border-gray-100">
+            <Input
+              label="Card / Patient ID"
+              icon={User}
+              type="text"
+              value={inputPatientId}
+              onChange={(e) => setInputPatientId(e.target.value)}
+              placeholder="e.g. MK-78294"
+              required
+            />
+            <Input
+              label="4-Digit Security PIN"
+              icon={KeyRound}
+              type="password"
+              value={inputPin}
+              onChange={(e) => setInputPin(e.target.value)}
+              placeholder="1234"
+              required
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              fullWidth
+              disabled={isLoggingIn}
+              className="py-2.5"
+              icon={ArrowRight}
+              iconPosition="right"
+            >
+              {isLoggingIn ? 'Checking In...' : 'Sign In To Patient Account'}
+            </Button>
+          </form>
+
+        </div>
+      </Modal>
+
     </div>
   );
 }
