@@ -70,7 +70,7 @@ class VitalReadingSerializer(serializers.ModelSerializer):
         model = VitalReading
         fields = [
             'id', 'heart_rate', 'bp_systolic', 'bp_diastolic', 'spo2',
-            'temperature', 'glucose', 'status', 'notes', 'recorded_at'
+            'temperature', 'glucose', 'weight_kg', 'height_cm', 'status', 'notes', 'recorded_at'
         ]
         read_only_fields = ['id', 'recorded_at']
 

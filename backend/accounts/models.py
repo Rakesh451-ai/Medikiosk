@@ -306,6 +306,8 @@ class VitalReading(models.Model):
     spo2 = models.IntegerField(null=True, blank=True)
     temperature = models.FloatField(null=True, blank=True)
     glucose = models.IntegerField(null=True, blank=True)
+    weight_kg = models.FloatField(null=True, blank=True)
+    height_cm = models.FloatField(null=True, blank=True)
     status = models.CharField(max_length=50, default='Normal')
     notes = models.CharField(max_length=255, blank=True, default='')
     recorded_at = models.DateTimeField(auto_now_add=True)

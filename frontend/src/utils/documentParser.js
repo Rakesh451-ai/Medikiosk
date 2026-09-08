@@ -196,17 +196,21 @@ export function parseClinicalEntities(rawText = '', patient = null) {
 
   // 6. Vitals Extraction
   const vitals = {};
-  const bpMatch = text.match(/(?:BP|Blood Pressure)\s*[:\-]?\s*(\d{2,3}\s*\/\s*\d{2,3})\s*(?:mmHg)?/i);
-  if (bpMatch) vitals.blood_pressure = `${bpMatch[1].trim()} mmHg`;
+  const bpMatch = text.match(/(?:BP|Blood Pressure)\s*[:\-]?\s*(\d{2,3})\s*\/\s*(\d{2,3})\s*(?:mmHg)?/i);
+  if (bpMatch) {
+    vitals.bp_systolic = parseInt(bpMatch[1], 10);
+    vitals.bp_diastolic = parseInt(bpMatch[2], 10);
+    vitals.blood_pressure = `${vitals.bp_systolic}/${vitals.bp_diastolic}`;
+  }
 
   const pulseMatch = text.match(/(?:HR|Pulse|Heart Rate)\s*[:\-]?\s*(\d{2,3})\s*(?:bpm)?/i);
-  if (pulseMatch) vitals.heart_rate = `${pulseMatch[1].trim()} bpm`;
+  if (pulseMatch) vitals.heart_rate = parseInt(pulseMatch[1], 10);
 
   const spo2Match = text.match(/(?:SpO2|Oxygen|O2 Sat(?:uration)?)\s*[:\-]?\s*(\d{2,3})\s*%?/i);
-  if (spo2Match) vitals.spo2 = `${spo2Match[1].trim()}%`;
+  if (spo2Match) vitals.spo2 = parseInt(spo2Match[1], 10);
 
   const tempMatch = text.match(/(?:Temp|Temperature)\s*[:\-]?\s*(\d{2,3}(?:\.\d+)?)\s*(?:°?[FC])?/i);
-  if (tempMatch) vitals.temperature = `${tempMatch[1].trim()} °F`;
+  if (tempMatch) vitals.temperature = parseFloat(tempMatch[1]);
 
   // 7. Medications Extraction
   const medications = [];

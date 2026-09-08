@@ -26,7 +26,10 @@ import {
   X,
   FileCheck2,
   FileImage,
-  FolderOpen
+  Edit3,
+  Plus,
+  Trash2,
+  Save
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
@@ -34,6 +37,11 @@ import confetti from 'canvas-confetti';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import {
+  extractTextFromImage,
+  extractTextFromPdf,
+  parseClinicalEntities
+} from '../utils/documentParser';
 
 export function ScannerPage({ patient, onDocumentAdded }) {
   const navigate = useNavigate();
@@ -48,6 +56,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pdfPageNum, setPdfPageNum] = useState(1);
   const [pdfTotalPages, setPdfTotalPages] = useState(1);
+  const [isFromCamera, setIsFromCamera] = useState(false);
 
   // Live camera stream state
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -63,6 +72,8 @@ export function ScannerPage({ patient, onDocumentAdded }) {
 
   // Review & Confirm data
   const [scannedDoc, setScannedDoc] = useState(null);
+  const [editedDoc, setEditedDoc] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [allergyAlert, setAllergyAlert] = useState(false);
   const [allergyMessage, setAllergyMessage] = useState('');
   const [showRawText, setShowRawText] = useState(false);
@@ -93,9 +104,27 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     };
   }, []);
 
+  // Whenever isCameraActive turns true, ensure video element is connected to stream
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.play().catch((err) => {
+        console.warn('Video playback notice in effect:', err);
+      });
+    }
+  }, [isCameraActive]);
+
   const stopCameraTracks = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Error stopping camera track:', e);
+        }
+      });
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -104,20 +133,38 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     setIsCameraActive(false);
   };
 
-  // Start real device camera
+  // Start real device camera with progressive constraint fallback
   const startCamera = async (facing = cameraFacingMode) => {
     stopCameraTracks();
     setCameraError(null);
     setScanError(null);
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraError('Camera access is not supported by your browser. Please upload a photo or PDF.');
+    // 1. Check secure context (Chrome/Safari block mediaDevices in insecure non-localhost contexts)
+    if (
+      typeof window !== 'undefined' &&
+      !window.isSecureContext &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1'
+    ) {
+      setCameraError(
+        'Camera access requires a secure connection (HTTPS or localhost). Please access MediKiosk over HTTPS or upload your document directly.'
+      );
       return;
     }
 
+    // 2. Check browser support for mediaDevices
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError(
+        'Camera access is not supported by your current browser. Please upload a photo (.jpg, .png) or PDF document directly.'
+      );
+      return;
+    }
+
+    // 3. Progressive constraints fallback
+    let stream = null;
     try {
-      let stream;
       try {
+        // Attempt 1: High resolution with ideal facingMode
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: facing },
@@ -126,27 +173,48 @@ export function ScannerPage({ patient, onDocumentAdded }) {
           },
           audio: false
         });
-      } catch {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false
-        });
+      } catch (err1) {
+        console.warn('High-res camera constraints failed, attempting basic facingMode:', err1);
+        try {
+          // Attempt 2: Basic facingMode without resolution requirements
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facing },
+            audio: false
+          });
+        } catch (err2) {
+          console.warn('FacingMode camera failed, falling back to any video device:', err2);
+          // Attempt 3: Standard video device (e.g. desktop webcams)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
       }
 
       streamRef.current = stream;
+      setCameraFacingMode(facing);
+      setIsCameraActive(true);
+
+      // Attach stream if video element already mounted
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        videoRef.current.play().catch((playErr) => {
+          console.warn('Video autoPlay caught:', playErr);
+        });
       }
-      setIsCameraActive(true);
-      setCameraFacingMode(facing);
     } catch (err) {
       console.warn('Camera access failed:', err);
-      let msg = 'Unable to start camera. Please check camera permissions.';
+      let msg = 'Unable to start camera. Please check camera permissions in your browser.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera permission was denied. Please allow camera permissions in your browser or upload a file directly.';
+        msg = 'Camera permission was denied. Please click the camera/lock icon in your browser address bar to allow camera access, or upload your document directly.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No camera found on this device. You can upload a photo or PDF.';
+        msg = 'No camera was found on this device. You can upload a photo or PDF.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Your camera is currently in use by another application or tab (e.g. Zoom, Google Meet). Please close that app and try again.';
+      } else if (err.name === 'SecurityError') {
+        msg = 'Camera access was blocked due to browser security settings. Please access via HTTPS or localhost.';
+      } else if (err.name === 'OverconstrainedError') {
+        msg = 'The requested camera setting is not supported by your hardware. Try uploading a photo.';
       }
       setCameraError(msg);
       setIsCameraActive(false);
@@ -175,19 +243,29 @@ export function ScannerPage({ patient, onDocumentAdded }) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, width, height);
 
-      canvas.toBlob((blob) => {
-        const file = new File([blob], `camera_scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        const previewUrl = URL.createObjectURL(blob);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            setIsCapturing(false);
+            setCameraError('Failed to capture photo frame. Please try again.');
+            return;
+          }
+          const file = new File([blob], `camera_scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+          const previewUrl = URL.createObjectURL(blob);
 
-        stopCameraTracks();
-        setIsCapturing(false);
+          stopCameraTracks();
+          setIsCapturing(false);
 
-        setSelectedFile(file);
-        setFilePreviewUrl(previewUrl);
-        setIsPdf(false);
-        setPdfDoc(null);
-        setStep(2);
-      }, 'image/jpeg', 0.92);
+          setSelectedFile(file);
+          setFilePreviewUrl(previewUrl);
+          setIsPdf(false);
+          setPdfDoc(null);
+          setIsFromCamera(true);
+          setStep(2);
+        },
+        'image/jpeg',
+        0.95
+      );
     } catch (err) {
       console.error('Capture error:', err);
       setIsCapturing(false);
@@ -203,7 +281,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     // Validate type and size (< 15MB)
     const validExtensions = ['.pdf', '.png', '.jpg', '.jpeg'];
     const lowerName = file.name.toLowerCase();
-    const isValidType = validExtensions.some(ext => lowerName.endsWith(ext));
+    const isValidType = validExtensions.some((ext) => lowerName.endsWith(ext));
     if (!isValidType) {
       alert('Please select a valid document format (.pdf, .png, .jpg, .jpeg).');
       return;
@@ -218,6 +296,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     setCameraError(null);
     setScanError(null);
     setSelectedFile(file);
+    setIsFromCamera(false);
 
     const isPdfFile = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
     setIsPdf(isPdfFile);
@@ -229,7 +308,9 @@ export function ScannerPage({ patient, onDocumentAdded }) {
 
         const pdfjsLib = await import('pdfjs-dist');
         if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '5.4.624'}/build/pdf.worker.min.mjs`;
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${
+            pdfjsLib.version || '5.4.624'
+          }/build/pdf.worker.min.mjs`;
         }
 
         const arrayBuffer = await file.arrayBuffer();
@@ -277,22 +358,22 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     }
   };
 
-  // Step 3: Run Document Optical Recognition & Extraction
+  // Step 3: Run Document Optical Recognition & Clinical Extraction
   const startProcessing = async () => {
     if (!selectedFile) return;
 
     setStep(3);
-    setScanProgress(10);
+    setScanProgress(12);
     setScanStepIndex(0);
     setScanStatusMessage(processingSteps[0]);
     setScanError(null);
 
     // Stepped animated progress updater
-    let currentPct = 10;
+    let currentPct = 12;
     let stepIdx = 0;
     const progressTimer = setInterval(() => {
-      currentPct += 12;
-      if (currentPct < 90) {
+      currentPct += 10;
+      if (currentPct < 85) {
         setScanProgress(currentPct);
         stepIdx = Math.min(processingSteps.length - 1, Math.floor(currentPct / 18));
         setScanStepIndex(stepIdx);
@@ -300,6 +381,27 @@ export function ScannerPage({ patient, onDocumentAdded }) {
       }
     }, 450);
 
+    // 1. Client-Side Text Extraction (Tesseract OCR for images, pdfjs-dist for PDFs)
+    let clientExtractedText = '';
+    try {
+      if (isPdf) {
+        setScanStatusMessage('Extracting text and pages from PDF...');
+        clientExtractedText = await extractTextFromPdf(selectedFile, (pct, status) => {
+          setScanProgress(Math.min(pct, 75));
+          if (status) setScanStatusMessage(status);
+        });
+      } else {
+        setScanStatusMessage('Scanning visual patterns & optical characters...');
+        clientExtractedText = await extractTextFromImage(selectedFile, (pct, status) => {
+          setScanProgress(Math.min(pct, 75));
+          if (status) setScanStatusMessage(status);
+        });
+      }
+    } catch (clientOcrErr) {
+      console.warn('Client OCR extraction notice:', clientOcrErr);
+    }
+
+    // 2. Submit to Backend /documents/scan/ API
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
@@ -307,42 +409,88 @@ export function ScannerPage({ patient, onDocumentAdded }) {
         formData.append('patient_id', patient.patient_id);
       }
       formData.append('title', selectedFile.name.replace(/\.[^/.]+$/, ''));
+      if (clientExtractedText && clientExtractedText.trim().length > 0) {
+        formData.append('extracted_text', clientExtractedText.trim());
+      }
 
-      const serverRes = await api.scanDocument(formData);
+      let serverRes = null;
+      let serverError = null;
+      try {
+        serverRes = await api.scanDocument(formData);
+      } catch (apiErr) {
+        serverError = apiErr;
+        console.warn('Backend scan API returned non-200, checking client OCR fallback:', apiErr);
+      }
 
       clearInterval(progressTimer);
       setScanProgress(100);
       setScanStepIndex(5);
       setScanStatusMessage('Extraction completed successfully!');
 
-      if (serverRes.can_extract === false || !serverRes.parsed_data) {
-        setScanError("We couldn't read this document. Try uploading a clearer scan or photo.");
+      let doc = null;
+      let hasWarning = false;
+      let warnMsg = '';
+
+      if (serverRes && (serverRes.can_extract || serverRes.document || serverRes.parsed_data)) {
+        const rawData = serverRes.document || serverRes.parsed_data;
+        doc = {
+          id: serverRes.document_id || rawData.id,
+          title: rawData.title || selectedFile.name.replace(/\.[^/.]+$/, ''),
+          doc_type: rawData.doc_type || 'Prescription',
+          doctor: rawData.doctor || '',
+          facility: rawData.facility || '',
+          patient_name: rawData.patient_name || '',
+          date: rawData.date || new Date().toISOString().split('T')[0],
+          diagnosis: rawData.diagnosis || '',
+          findings: rawData.findings || '',
+          impression: rawData.impression || '',
+          medications: rawData.medications || [],
+          lab_results: rawData.lab_results || [],
+          vitals: rawData.vitals || {},
+          extracted_text: rawData.extracted_text || clientExtractedText || '',
+          confidence: rawData.confidence || '95%'
+        };
+        hasWarning = Boolean(serverRes.allergy_warning);
+        warnMsg = serverRes.allergy_message || '';
+      } else if (clientExtractedText && clientExtractedText.trim().length >= 5) {
+        // Resilient fallback using client-side parsed entities
+        const parsed = parseClinicalEntities(clientExtractedText, patient);
+        doc = {
+          id: `client_${Date.now()}`,
+          title: selectedFile.name.replace(/\.[^/.]+$/, ''),
+          doc_type: parsed.doc_type || 'Prescription',
+          doctor: parsed.doctor || '',
+          facility: parsed.facility || '',
+          patient_name: patient?.name || '',
+          date: parsed.doc_date || new Date().toISOString().split('T')[0],
+          diagnosis: parsed.diagnosis || '',
+          findings: '',
+          impression: '',
+          medications: parsed.medications || [],
+          lab_results: parsed.lab_results || [],
+          vitals: parsed.vitals || {},
+          extracted_text: clientExtractedText,
+          confidence: parsed.confidence || '92%'
+        };
+        hasWarning = Boolean(parsed.allergy_warning);
+        warnMsg = parsed.allergy_message || '';
+      } else {
+        // Neither server nor client could extract text
+        setScanError(
+          serverError?.message || "We couldn't read this document. Try uploading a clearer scan or photo."
+        );
         return;
       }
 
-      const doc = serverRes.document || {
-        id: serverRes.document_id,
-        title: selectedFile.name.replace(/\.[^/.]+$/, ''),
-        doc_type: serverRes.parsed_data.doc_type || 'Prescription',
-        doctor: serverRes.parsed_data.doctor || '',
-        facility: serverRes.parsed_data.facility || '',
-        date: serverRes.parsed_data.date || new Date().toISOString().split('T')[0],
-        diagnosis: serverRes.parsed_data.diagnosis || '',
-        medications: serverRes.parsed_data.medications || [],
-        lab_results: serverRes.parsed_data.lab_results || [],
-        vitals: serverRes.parsed_data.vitals || {},
-        extracted_text: serverRes.parsed_data.extracted_text || '',
-        confidence: serverRes.parsed_data.confidence || '95%'
-      };
-
       setScannedDoc(doc);
-      setAllergyAlert(Boolean(serverRes.allergy_warning));
-      setAllergyMessage(serverRes.allergy_message || '');
+      setEditedDoc(JSON.parse(JSON.stringify(doc)));
+      setIsEditing(false);
+      setAllergyAlert(hasWarning);
+      setAllergyMessage(warnMsg);
 
       setTimeout(() => {
         setStep(4);
       }, 400);
-
     } catch (err) {
       clearInterval(progressTimer);
       console.error('Scan processing error:', err);
@@ -350,25 +498,106 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     }
   };
 
+  // Step 4 Editing Handlers
+  const handleDocFieldChange = (field, value) => {
+    setEditedDoc((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleMedicationChange = (index, field, value) => {
+    setEditedDoc((prev) => {
+      const updated = [...(prev.medications || [])];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, medications: updated };
+    });
+  };
+
+  const handleRemoveMedication = (index) => {
+    setEditedDoc((prev) => ({
+      ...prev,
+      medications: prev.medications.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleAddMedication = () => {
+    setEditedDoc((prev) => ({
+      ...prev,
+      medications: [
+        ...(prev.medications || []),
+        {
+          name: '',
+          dose: '',
+          frequency: 'Once daily',
+          timing: 'Morning',
+          instruction: 'Take after meals',
+          duration: ''
+        }
+      ]
+    }));
+  };
+
+  const handleLabChange = (index, field, value) => {
+    setEditedDoc((prev) => {
+      const updated = [...(prev.lab_results || [])];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, lab_results: updated };
+    });
+  };
+
+  const handleRemoveLab = (index) => {
+    setEditedDoc((prev) => ({
+      ...prev,
+      lab_results: prev.lab_results.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleAddLab = () => {
+    setEditedDoc((prev) => ({
+      ...prev,
+      lab_results: [
+        ...(prev.lab_results || []),
+        {
+          test_name: '',
+          value: '',
+          unit: '',
+          reference_range: '',
+          status: 'Normal',
+          is_abnormal: false
+        }
+      ]
+    }));
+  };
+
+  const handleSaveEdits = () => {
+    setScannedDoc({ ...editedDoc });
+    setIsEditing(false);
+  };
+
   // Step 5: Confirm & Commit Document to Medical Records
   const handleConfirmDocument = async () => {
-    if (!scannedDoc) return;
+    const docToSave = isEditing ? editedDoc : scannedDoc;
+    if (!docToSave) return;
     setIsConfirming(true);
 
     try {
       const payload = {
-        document_id: scannedDoc.id,
+        document_id: docToSave.id,
         patient_id: patient?.patient_id || '',
-        title: scannedDoc.title || 'Verified Medical Record',
-        doc_type: scannedDoc.doc_type || 'Prescription',
-        doctor: scannedDoc.doctor || '',
-        facility: scannedDoc.facility || '',
-        date: scannedDoc.date || new Date().toISOString().split('T')[0],
-        diagnosis: scannedDoc.diagnosis || '',
-        medications: scannedDoc.medications || [],
-        lab_results: scannedDoc.lab_results || [],
-        vitals: scannedDoc.vitals || {},
-        extracted_text: scannedDoc.extracted_text || ''
+        title: docToSave.title || 'Verified Medical Record',
+        doc_type: docToSave.doc_type || 'Prescription',
+        doctor: docToSave.doctor || '',
+        facility: docToSave.facility || '',
+        patient_name: docToSave.patient_name || '',
+        date: docToSave.date || new Date().toISOString().split('T')[0],
+        diagnosis: docToSave.diagnosis || '',
+        findings: docToSave.findings || '',
+        impression: docToSave.impression || '',
+        medications: docToSave.medications || [],
+        lab_results: docToSave.lab_results || [],
+        vitals: docToSave.vitals || {},
+        extracted_text: docToSave.extracted_text || ''
       };
 
       const res = await api.confirmDocument(payload);
@@ -395,13 +624,18 @@ export function ScannerPage({ patient, onDocumentAdded }) {
   const resetWorkflow = () => {
     stopCameraTracks();
     if (filePreviewUrl) {
-      try { URL.revokeObjectURL(filePreviewUrl); } catch (e) {}
+      try {
+        URL.revokeObjectURL(filePreviewUrl);
+      } catch (e) {}
     }
     setSelectedFile(null);
     setFilePreviewUrl(null);
     setIsPdf(false);
     setPdfDoc(null);
+    setIsFromCamera(false);
     setScannedDoc(null);
+    setEditedDoc(null);
+    setIsEditing(false);
     setScanError(null);
     setAllergyAlert(false);
     setAllergyMessage('');
@@ -414,6 +648,8 @@ export function ScannerPage({ patient, onDocumentAdded }) {
     setCopiedRawText(true);
     setTimeout(() => setCopiedRawText(false), 2000);
   };
+
+  const activeDoc = isEditing ? editedDoc : scannedDoc;
 
   return (
     <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center select-none font-sans">
@@ -471,9 +707,18 @@ export function ScannerPage({ patient, onDocumentAdded }) {
         {step === 1 && (
           <div className="space-y-6">
             {cameraError && (
-              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2.5 animate-fadeIn">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <span>{cameraError}</span>
+              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{cameraError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => startCamera(cameraFacingMode)}
+                  className="px-3.5 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold transition whitespace-nowrap cursor-pointer shrink-0 shadow-xs"
+                >
+                  Try Again
+                </button>
               </div>
             )}
 
@@ -482,7 +727,13 @@ export function ScannerPage({ patient, onDocumentAdded }) {
               <Card className="p-4 sm:p-6 bg-slate-900 text-white rounded-3xl space-y-4 shadow-xl border-2 border-emerald-500/50 animate-fadeIn">
                 <div className="relative rounded-2xl overflow-hidden bg-black flex items-center justify-center max-h-[480px]">
                   <video
-                    ref={videoRef}
+                    ref={(el) => {
+                      videoRef.current = el;
+                      if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                        el.srcObject = streamRef.current;
+                        el.play().catch((e) => console.warn('Video element play notice:', e));
+                      }
+                    }}
                     autoPlay
                     playsInline
                     muted
@@ -524,7 +775,11 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                       disabled={isCapturing}
                       className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-70"
                     >
-                      {isCapturing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                      {isCapturing ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Camera className="w-4 h-4" />
+                      )}
                       <span>Snap Photo & Preview</span>
                     </button>
                   </div>
@@ -543,7 +798,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                     </div>
                     <h3 className="text-base font-black text-slate-900">1. Take Photo with Camera</h3>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      Hold prescription or doctor slip in front of your webcam or device camera.
+                      Hold prescription or doctor slip in front of your webcam or phone camera.
                     </p>
                   </div>
                   <div className="pt-2">
@@ -639,23 +894,28 @@ export function ScannerPage({ patient, onDocumentAdded }) {
             <div className="flex flex-col items-center justify-center p-4 bg-slate-100 rounded-2xl border border-slate-200 min-h-[300px] overflow-hidden">
               {isPdf ? (
                 <div className="w-full flex flex-col items-center space-y-3">
-                  <canvas ref={pdfCanvasRef} className="max-w-full h-auto rounded-lg shadow-md border border-slate-300" />
+                  <canvas
+                    ref={pdfCanvasRef}
+                    className="max-w-full h-auto rounded-lg shadow-md border border-slate-300"
+                  />
                   {pdfTotalPages > 1 && (
                     <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-full border border-slate-300 text-xs font-bold">
                       <button
                         type="button"
                         onClick={() => changePdfPage(-1)}
                         disabled={pdfPageNum <= 1}
-                        className="p-1 hover:bg-slate-100 rounded-full disabled:opacity-30"
+                        className="p-1 hover:bg-slate-100 rounded-full disabled:opacity-30 cursor-pointer"
                       >
                         <ChevronLeft className="w-4 h-4" />
                       </button>
-                      <span>Page {pdfPageNum} of {pdfTotalPages}</span>
+                      <span>
+                        Page {pdfPageNum} of {pdfTotalPages}
+                      </span>
                       <button
                         type="button"
                         onClick={() => changePdfPage(1)}
                         disabled={pdfPageNum >= pdfTotalPages}
-                        className="p-1 hover:bg-slate-100 rounded-full disabled:opacity-30"
+                        className="p-1 hover:bg-slate-100 rounded-full disabled:opacity-30 cursor-pointer"
                       >
                         <ChevronRight className="w-4 h-4" />
                       </button>
@@ -678,13 +938,37 @@ export function ScannerPage({ patient, onDocumentAdded }) {
 
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={resetWorkflow}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <X className="w-4 h-4" /> Choose Different Document
-              </button>
+              <div className="flex items-center gap-2">
+                {isFromCamera ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetWorkflow();
+                        startCamera(cameraFacingMode);
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className="w-4 h-4" /> Retake Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetWorkflow}
+                      className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" /> Choose File
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={resetWorkflow}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" /> Choose Different Document
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -709,23 +993,21 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                   <AlertTriangle className="w-7 h-7" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900">Optical Recognition Failed</h3>
-                  <p className="text-xs text-slate-600 max-w-md mx-auto mt-1">
-                    {scanError}
-                  </p>
+                  <h3 className="text-base font-black text-slate-900">Optical Recognition Notice</h3>
+                  <p className="text-xs text-slate-600 max-w-md mx-auto mt-1">{scanError}</p>
                 </div>
                 <div className="flex justify-center gap-3 pt-2">
                   <button
                     type="button"
                     onClick={startProcessing}
-                    className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition"
+                    className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition cursor-pointer"
                   >
                     Try Again
                   </button>
                   <button
                     type="button"
                     onClick={resetWorkflow}
-                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
                   >
                     Choose Another File
                   </button>
@@ -738,11 +1020,9 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-black text-slate-900">
-                    {scanStatusMessage}
-                  </h3>
+                  <h3 className="text-lg font-black text-slate-900">{scanStatusMessage}</h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    Our AI optical engine is cross-checking prescription dosages and allergy safety.
+                    Extracting clinical entities, prescription dosages, and allergy contraindications.
                   </p>
                 </div>
 
@@ -785,7 +1065,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
         {/* ============================================================ */}
         {/* STEP 4: REVIEW RESULTS & CLINICAL FINDINGS */}
         {/* ============================================================ */}
-        {step === 4 && scannedDoc && (
+        {step === 4 && activeDoc && (
           <div className="space-y-5 animate-fadeIn">
             {/* Allergy Warning Banner (if detected) */}
             {allergyAlert && (
@@ -806,50 +1086,169 @@ export function ScannerPage({ patient, onDocumentAdded }) {
             <Card className="p-5 sm:p-6 bg-white rounded-3xl border-2 border-emerald-300 shadow-md space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2.5">
-                  <Badge variant="default" className="text-xs font-black uppercase bg-emerald-100 text-emerald-900 px-3 py-1">
-                    {scannedDoc.doc_type || 'Prescription'}
-                  </Badge>
+                  {isEditing ? (
+                    <select
+                      value={editedDoc.doc_type || 'Prescription'}
+                      onChange={(e) => handleDocFieldChange('doc_type', e.target.value)}
+                      className="text-xs font-black uppercase bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-lg px-2.5 py-1"
+                    >
+                      <option value="Prescription">Prescription</option>
+                      <option value="Lab Report">Lab Report</option>
+                      <option value="Radiology">Radiology & Imaging</option>
+                      <option value="Discharge Summary">Discharge Summary</option>
+                      <option value="Clinical Slip">Clinical Slip</option>
+                    </select>
+                  ) : (
+                    <Badge
+                      variant="default"
+                      className="text-xs font-black uppercase bg-emerald-100 text-emerald-900 px-3 py-1"
+                    >
+                      {activeDoc.doc_type || 'Prescription'}
+                    </Badge>
+                  )}
                   <Badge variant="success" className="text-xs font-bold bg-[#297006] text-white px-2.5 py-0.5">
-                    Confidence: {scannedDoc.confidence || '95%'}
+                    Confidence: {activeDoc.confidence || '95%'}
                   </Badge>
                 </div>
-                <span className="text-xs font-bold text-slate-500">
-                  Date: {scannedDoc.date || new Date().toISOString().split('T')[0]}
-                </span>
+
+                <div className="flex items-center gap-3">
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editedDoc.date || ''}
+                      onChange={(e) => handleDocFieldChange('date', e.target.value)}
+                      className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1"
+                    />
+                  ) : (
+                    <span className="text-xs font-bold text-slate-500">
+                      Date: {activeDoc.date || new Date().toISOString().split('T')[0]}
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isEditing) {
+                        handleSaveEdits();
+                      } else {
+                        setIsEditing(true);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      isEditing
+                        ? 'bg-emerald-700 text-white hover:bg-emerald-800'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {isEditing ? (
+                      <>
+                        <Save className="w-3.5 h-3.5" /> Save Edits
+                      </>
+                    ) : (
+                      <>
+                        <Edit3 className="w-3.5 h-3.5" /> Edit Fields
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Prescribing Doctor</span>
-                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
-                    {scannedDoc.doctor || 'Not specified on document'}
-                  </p>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Dr. Rajesh Sharma"
+                      value={editedDoc.doctor || ''}
+                      onChange={(e) => handleDocFieldChange('doctor', e.target.value)}
+                      className="w-full font-bold text-slate-900 text-xs bg-white border border-slate-300 rounded-lg p-1.5"
+                    />
+                  ) : (
+                    <p className="font-extrabold text-slate-900 text-sm mt-0.5">
+                      {activeDoc.doctor || 'Not specified on document'}
+                    </p>
+                  )}
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Hospital / Clinic</span>
-                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
-                    {scannedDoc.facility || 'Not specified on document'}
-                  </p>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. City General Clinic"
+                      value={editedDoc.facility || ''}
+                      onChange={(e) => handleDocFieldChange('facility', e.target.value)}
+                      className="w-full font-bold text-slate-900 text-xs bg-white border border-slate-300 rounded-lg p-1.5"
+                    />
+                  ) : (
+                    <p className="font-extrabold text-slate-900 text-sm mt-0.5">
+                      {activeDoc.facility || 'Not specified on document'}
+                    </p>
+                  )}
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Clinical Diagnosis / Reason</span>
-                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
-                    {scannedDoc.diagnosis || 'General Consultation / Clinical Slip'}
-                  </p>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Upper Respiratory Tract Infection"
+                      value={editedDoc.diagnosis || ''}
+                      onChange={(e) => handleDocFieldChange('diagnosis', e.target.value)}
+                      className="w-full font-bold text-slate-900 text-xs bg-white border border-slate-300 rounded-lg p-1.5"
+                    />
+                  ) : (
+                    <p className="font-extrabold text-slate-900 text-sm mt-0.5">
+                      {activeDoc.diagnosis || 'General Consultation / Clinical Slip'}
+                    </p>
+                  )}
                 </div>
               </div>
+
+              {(activeDoc.findings || activeDoc.impression || isEditing) && (
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Findings / Clinical Impression</span>
+                  {isEditing ? (
+                    <textarea
+                      rows={2}
+                      placeholder="Enter clinical findings or impression noted on the slip..."
+                      value={editedDoc.findings || editedDoc.impression || ''}
+                      onChange={(e) => {
+                        handleDocFieldChange('findings', e.target.value);
+                        handleDocFieldChange('impression', e.target.value);
+                      }}
+                      className="w-full font-medium text-slate-800 text-xs bg-white border border-slate-300 rounded-lg p-1.5"
+                    />
+                  ) : (
+                    <p className="text-slate-800 text-xs mt-0.5">
+                      {activeDoc.findings || activeDoc.impression || 'No additional findings noted.'}
+                    </p>
+                  )}
+                </div>
+              )}
             </Card>
 
-            {/* Extracted Medications Table */}
-            {scannedDoc.medications && scannedDoc.medications.length > 0 && (
+            {/* Extracted Medications Section */}
+            {((activeDoc.medications && activeDoc.medications.length > 0) || isEditing) && (
               <Card className="p-5 sm:p-6 bg-white rounded-3xl border-2 border-emerald-200 shadow-md space-y-3">
-                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                  <Heart className="w-5 h-5 text-emerald-700" />
-                  <h3 className="font-black text-sm sm:text-base text-slate-900">
-                    Recognized Medications ({scannedDoc.medications.length})
-                  </h3>
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Heart className="w-5 h-5 text-emerald-700" />
+                    <h3 className="font-black text-sm sm:text-base text-slate-900">
+                      Recognized Medications ({activeDoc.medications?.length || 0})
+                    </h3>
+                  </div>
+
+                  {isEditing && (
+                    <button
+                      type="button"
+                      onClick={handleAddMedication}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Medicine
+                    </button>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -861,26 +1260,89 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                         <th className="py-2 px-2">Frequency</th>
                         <th className="py-2 px-2">Timing</th>
                         <th className="py-2 px-2">Instruction</th>
+                        {isEditing && <th className="py-2 px-2 text-right">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {scannedDoc.medications.map((med, idx) => (
+                      {activeDoc.medications?.map((med, idx) => (
                         <tr key={idx} className="hover:bg-slate-50">
                           <td className="py-2.5 px-2 font-black text-slate-900">
-                            {med.name}
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={med.name || ''}
+                                onChange={(e) => handleMedicationChange(idx, 'name', e.target.value)}
+                                placeholder="Medicine name"
+                                className="w-full p-1 bg-white border border-slate-200 rounded font-bold"
+                              />
+                            ) : (
+                              med.name
+                            )}
                           </td>
                           <td className="py-2.5 px-2 font-bold text-emerald-800">
-                            {med.dose}
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={med.dose || ''}
+                                onChange={(e) => handleMedicationChange(idx, 'dose', e.target.value)}
+                                placeholder="e.g. 500mg"
+                                className="w-full p-1 bg-white border border-slate-200 rounded font-bold text-emerald-800"
+                              />
+                            ) : (
+                              med.dose || '—'
+                            )}
                           </td>
                           <td className="py-2.5 px-2 text-slate-600">
-                            {med.frequency}
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={med.frequency || ''}
+                                onChange={(e) => handleMedicationChange(idx, 'frequency', e.target.value)}
+                                placeholder="e.g. Twice daily"
+                                className="w-full p-1 bg-white border border-slate-200 rounded"
+                              />
+                            ) : (
+                              med.frequency || '—'
+                            )}
                           </td>
                           <td className="py-2.5 px-2 text-slate-600">
-                            {med.timing || 'Morning'}
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={med.timing || ''}
+                                onChange={(e) => handleMedicationChange(idx, 'timing', e.target.value)}
+                                placeholder="e.g. Morning, Night"
+                                className="w-full p-1 bg-white border border-slate-200 rounded"
+                              />
+                            ) : (
+                              med.timing || '—'
+                            )}
                           </td>
                           <td className="py-2.5 px-2 text-slate-500 italic">
-                            {med.instruction || 'Take with water'}
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={med.instruction || ''}
+                                onChange={(e) => handleMedicationChange(idx, 'instruction', e.target.value)}
+                                placeholder="e.g. After meals"
+                                className="w-full p-1 bg-white border border-slate-200 rounded text-slate-700"
+                              />
+                            ) : (
+                              med.instruction || 'Take with water'
+                            )}
                           </td>
+                          {isEditing && (
+                            <td className="py-2.5 px-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMedication(idx)}
+                                className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 cursor-pointer"
+                                title="Remove medication"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -889,14 +1351,26 @@ export function ScannerPage({ patient, onDocumentAdded }) {
               </Card>
             )}
 
-            {/* Extracted Lab Results Table */}
-            {scannedDoc.lab_results && scannedDoc.lab_results.length > 0 && (
+            {/* Extracted Lab Results Section */}
+            {((activeDoc.lab_results && activeDoc.lab_results.length > 0) || isEditing) && (
               <Card className="p-5 sm:p-6 bg-white rounded-3xl border-2 border-teal-200 shadow-md space-y-3">
-                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                  <Activity className="w-5 h-5 text-teal-700" />
-                  <h3 className="font-black text-sm sm:text-base text-slate-900">
-                    Diagnostic Lab Tests ({scannedDoc.lab_results.length})
-                  </h3>
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-teal-700" />
+                    <h3 className="font-black text-sm sm:text-base text-slate-900">
+                      Diagnostic Lab Tests ({activeDoc.lab_results?.length || 0})
+                    </h3>
+                  </div>
+
+                  {isEditing && (
+                    <button
+                      type="button"
+                      onClick={handleAddLab}
+                      className="px-2.5 py-1 rounded-lg bg-teal-100 hover:bg-teal-200 text-teal-900 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Lab Test
+                    </button>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -907,23 +1381,83 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                         <th className="py-2 px-2">Observed Value</th>
                         <th className="py-2 px-2">Reference Range</th>
                         <th className="py-2 px-2">Status</th>
+                        {isEditing && <th className="py-2 px-2 text-right">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {scannedDoc.lab_results.map((lab, idx) => (
+                      {activeDoc.lab_results?.map((lab, idx) => (
                         <tr key={idx} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-2 font-black text-slate-900">{lab.test_name}</td>
-                          <td className="py-2.5 px-2 font-bold text-slate-800">{lab.value} {lab.unit}</td>
-                          <td className="py-2.5 px-2 text-slate-500">{lab.reference_range}</td>
+                          <td className="py-2.5 px-2 font-black text-slate-900">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={lab.test_name || ''}
+                                onChange={(e) => handleLabChange(idx, 'test_name', e.target.value)}
+                                placeholder="Test name"
+                                className="w-full p-1 bg-white border border-slate-200 rounded font-bold"
+                              />
+                            ) : (
+                              lab.test_name
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 font-bold text-slate-800">
+                            {isEditing ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  value={lab.value !== undefined ? lab.value : ''}
+                                  onChange={(e) => handleLabChange(idx, 'value', e.target.value)}
+                                  placeholder="Value"
+                                  className="w-20 p-1 bg-white border border-slate-200 rounded font-bold"
+                                />
+                                <input
+                                  type="text"
+                                  value={lab.unit || ''}
+                                  onChange={(e) => handleLabChange(idx, 'unit', e.target.value)}
+                                  placeholder="Unit"
+                                  className="w-16 p-1 bg-white border border-slate-200 rounded text-xs"
+                                />
+                              </div>
+                            ) : (
+                              `${lab.value} ${lab.unit || ''}`
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-500">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={lab.reference_range || ''}
+                                onChange={(e) => handleLabChange(idx, 'reference_range', e.target.value)}
+                                placeholder="Ref range"
+                                className="w-full p-1 bg-white border border-slate-200 rounded"
+                              />
+                            ) : (
+                              lab.reference_range || '—'
+                            )}
+                          </td>
                           <td className="py-2.5 px-2">
-                            <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
-                              lab.is_abnormal
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-emerald-100 text-emerald-800'
-                            }`}>
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                                lab.is_abnormal
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
                               {lab.status || (lab.is_abnormal ? 'Abnormal' : 'Normal')}
                             </span>
                           </td>
+                          {isEditing && (
+                            <td className="py-2.5 px-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLab(idx)}
+                                className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 cursor-pointer"
+                                title="Remove test"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -933,7 +1467,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
             )}
 
             {/* Extracted Raw Text Accordion */}
-            {scannedDoc.extracted_text && (
+            {activeDoc.extracted_text && (
               <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
                 <div className="flex items-center justify-between">
                   <button
@@ -952,7 +1486,11 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                       onClick={copyRawText}
                       className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition flex items-center gap-1 cursor-pointer"
                     >
-                      {copiedRawText ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedRawText ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
                       <span>{copiedRawText ? 'Copied' : 'Copy'}</span>
                     </button>
                   )}
@@ -960,7 +1498,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
 
                 {showRawText && (
                   <pre className="mt-2 p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed max-h-52 overflow-y-auto">
-                    {scannedDoc.extracted_text}
+                    {activeDoc.extracted_text}
                   </pre>
                 )}
               </div>
@@ -973,7 +1511,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                 onClick={resetWorkflow}
                 className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
               >
-                <X className="w-4 h-4" /> Discard & Try Again
+                <X className="w-4 h-4" /> Discard & Scan Again
               </button>
 
               <button
@@ -982,8 +1520,16 @@ export function ScannerPage({ patient, onDocumentAdded }) {
                 disabled={isConfirming}
                 className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black transition flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-70"
               >
-                {isConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                <span>{isConfirming ? 'Saving to Records...' : 'Confirm & Save to Medical Records →'}</span>
+                {isConfirming ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>
+                  {isConfirming
+                    ? 'Saving to Records...'
+                    : 'Confirm & Save to Medical Records →'}
+                </span>
               </button>
             </div>
           </div>
@@ -999,9 +1545,7 @@ export function ScannerPage({ patient, onDocumentAdded }) {
             </div>
 
             <div className="space-y-1.5 max-w-md mx-auto">
-              <h2 className="text-2xl font-black text-slate-900">
-                Document Successfully Saved!
-              </h2>
+              <h2 className="text-2xl font-black text-slate-900">Document Successfully Saved!</h2>
               <p className="text-xs sm:text-sm text-slate-600">
                 Your medical slip has been parsed and committed to your Electronic Health Record.
               </p>

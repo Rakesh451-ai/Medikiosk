@@ -12,13 +12,34 @@ function getAuthHeaders(extraHeaders = {}, isJson = true) {
   return headers;
 }
 
-async function request(endpoint, options = {}) {
+export function sanitizePatientId(id) {
+  if (!id) return '';
+  const str = String(id).trim();
+  const lower = str.toLowerCase();
+  if (['ehr profile', 'patient', 'null', 'undefined', 'self', 'me', 'none'].includes(lower)) {
+    return '';
+  }
+  return str;
+}
+
+async function request(endpoint, options = {}, timeoutMs = 10000) {
   const url = `${API_BASE}${endpoint}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   let res;
   try {
-    res = await fetch(url, options);
+    res = await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal,
+    });
   } catch (netErr) {
+    if (netErr.name === 'AbortError') {
+      throw new Error('Request timed out while connecting to the clinical server.');
+    }
     throw new Error(`Network connection error: ${netErr.message}`);
+  } finally {
+    clearTimeout(timer);
   }
 
   if (res.status === 401) {
@@ -176,31 +197,40 @@ export const api = {
 
   // 3. Patient Details & Vitals
   getPatient: async (patientId = '') => {
-    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const clean = sanitizePatientId(patientId);
+    const query = clean ? `?patient_id=${encodeURIComponent(clean)}` : '';
     return await request(`/patient/${query}`, {
       headers: getAuthHeaders(),
     });
   },
 
   getVitals: async (patientId = '') => {
-    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const clean = sanitizePatientId(patientId);
+    const query = clean ? `?patient_id=${encodeURIComponent(clean)}` : '';
     return await request(`/patient/vitals/${query}`, {
       headers: getAuthHeaders(),
     });
   },
 
   getVitalsHistory: async (patientId = '') => {
-    const base = patientId ? `?patient_id=${encodeURIComponent(patientId)}&history=true` : '?history=true';
+    const clean = sanitizePatientId(patientId);
+    const base = clean ? `?patient_id=${encodeURIComponent(clean)}&history=true` : '?history=true';
     return await request(`/patient/vitals/${base}`, {
       headers: getAuthHeaders(),
     });
   },
 
   recordVitals: async (vitalsData) => {
+    const payload = { ...vitalsData };
+    if (payload.patient_id) {
+      const clean = sanitizePatientId(payload.patient_id);
+      if (clean) payload.patient_id = clean;
+      else delete payload.patient_id;
+    }
     return await request('/patient/vitals/', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify(vitalsData),
+      body: JSON.stringify(payload),
     });
   },
 
@@ -210,7 +240,8 @@ export const api = {
 
   // 4. Medications
   getMedications: async (patientId = '') => {
-    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const clean = sanitizePatientId(patientId);
+    const query = clean ? `?patient_id=${encodeURIComponent(clean)}` : '';
     const res = await request(`/medications/${query}`, {
       headers: getAuthHeaders(),
     });
@@ -233,7 +264,8 @@ export const api = {
 
   // 5. Documents & Optical OCR Pipeline
   getDocuments: async (patientId = '') => {
-    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const clean = sanitizePatientId(patientId);
+    const query = clean ? `?patient_id=${encodeURIComponent(clean)}` : '';
     const data = await request(`/documents/${query}`, {
       headers: getAuthHeaders(),
     });
@@ -276,7 +308,8 @@ export const api = {
 
   // 6. AI Agent Chat & Multi-Thread Conversations
   getConversations: async (patientId = '') => {
-    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const clean = sanitizePatientId(patientId);
+    const query = clean ? `?patient_id=${encodeURIComponent(clean)}` : '';
     const res = await request(`/agent/conversations/${query}`, {
       headers: getAuthHeaders(),
     });
@@ -284,17 +317,19 @@ export const api = {
   },
 
   createConversation: async (title = '', patientId = '') => {
+    const clean = sanitizePatientId(patientId);
     return await request('/agent/conversations/', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ title, patient_id: patientId }),
+      body: JSON.stringify({ title, patient_id: clean || undefined }),
     });
   },
 
   getChatHistory: async (conversationId = '', patientId = '') => {
+    const clean = sanitizePatientId(patientId);
     const params = new URLSearchParams();
     if (conversationId) params.append('conversation_id', conversationId);
-    if (patientId) params.append('patient_id', patientId);
+    if (clean) params.append('patient_id', clean);
     const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await request(`/agent/chat/${qs}`, {
       headers: getAuthHeaders(),
@@ -302,21 +337,36 @@ export const api = {
     return Array.isArray(res) ? res : [];
   },
 
-  sendChatMessage: async (text, conversationId = '', patientId = '') => {
+  sendChatMessage: async (textOrPayload, conversationId = '', patientId = '', language = '') => {
+    let payload = {};
+    if (typeof textOrPayload === 'object' && textOrPayload !== null) {
+      const pid = sanitizePatientId(textOrPayload.patient_id || textOrPayload.patientId);
+      payload = {
+        text: textOrPayload.text,
+        conversation_id: textOrPayload.conversation_id || textOrPayload.conversationId || undefined,
+        patient_id: pid || undefined,
+        language: textOrPayload.language || undefined
+      };
+    } else {
+      const pid = sanitizePatientId(patientId);
+      payload = {
+        text: textOrPayload,
+        conversation_id: conversationId || undefined,
+        patient_id: pid || undefined,
+        language: language || undefined
+      };
+    }
     return await request('/agent/chat/', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({
-        text,
-        conversation_id: conversationId || undefined,
-        patient_id: patientId || undefined
-      }),
+      body: JSON.stringify(payload),
     });
   },
 
   // 7. Clinical Summary & Triage
   getPatientSummary: async (patientId = '') => {
-    const query = patientId ? `${encodeURIComponent(patientId)}/` : '';
+    const clean = sanitizePatientId(patientId);
+    const query = clean ? `${encodeURIComponent(clean)}/` : '';
     return await request(`/summary/${query}`, {
       headers: getAuthHeaders(),
     });

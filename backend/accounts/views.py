@@ -49,6 +49,15 @@ from .auth_utils import (
 from .permissions import IsClinicalStaff, IsDoctor, IsPatient, IsPatientOwnerOrClinicalStaff
 
 
+def is_patient_placeholder(pid):
+    """
+    Returns True if patient ID is absent or a benign client-side placeholder.
+    """
+    if not pid:
+        return True
+    return str(pid).strip().lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
     Login endpoint returning JWT tokens enriched with user role and profile details.
@@ -396,7 +405,7 @@ def patient_detail_api(request):
     requested_id = request.query_params.get('patient_id') or (request.data.get('patient_id') if request.method == 'POST' else None)
 
     target_user = request.user
-    if requested_id and requested_id.strip():
+    if requested_id and not is_patient_placeholder(requested_id):
         req_id = requested_id.strip()
         if request.user.is_patient:
             profile = getattr(request.user, 'patient_profile', None)
@@ -493,6 +502,29 @@ def patient_detail_api(request):
     has_docs = docs_qs.exists() or (profile.has_scanned_documents if profile else False)
 
     if profile:
+        latest = dict(profile.latest_vitals or {})
+        if not latest or not any(latest.get(k) for k in ('heart_rate', 'bp_systolic', 'blood_pressure', 'spo2', 'temperature', 'glucose')):
+            last_reading = target_user.vital_readings.first()
+            if last_reading:
+                if last_reading.heart_rate is not None:
+                    latest["heart_rate"] = last_reading.heart_rate
+                if last_reading.bp_systolic is not None:
+                    latest["bp_systolic"] = last_reading.bp_systolic
+                if last_reading.bp_diastolic is not None:
+                    latest["bp_diastolic"] = last_reading.bp_diastolic
+                if last_reading.bp_systolic and last_reading.bp_diastolic:
+                    latest["blood_pressure"] = f"{last_reading.bp_systolic}/{last_reading.bp_diastolic}"
+                if last_reading.spo2 is not None:
+                    latest["spo2"] = last_reading.spo2
+                if last_reading.temperature is not None:
+                    latest["temperature"] = last_reading.temperature
+                if last_reading.glucose is not None:
+                    latest["glucose"] = last_reading.glucose
+                latest["status"] = last_reading.status
+                latest["recorded_at"] = last_reading.recorded_at.isoformat()
+                profile.latest_vitals = latest
+                profile.save(update_fields=['latest_vitals'])
+
         serialized = {
             "patient_id": profile.mock_abha_id or profile.mock_aadhaar_id or profile.phone or target_user.username,
             "name": profile.name or target_user.get_full_name() or target_user.username,
@@ -508,7 +540,7 @@ def patient_detail_api(request):
             "hospital_name": profile.hospital_name or '',
             "emergency_contact": profile.emergency_contact or (f"+91 {profile.phone}" if profile.phone else ''),
             "has_scanned_documents": has_docs,
-            "latest_vitals": profile.latest_vitals or {}
+            "latest_vitals": latest
         }
     else:
         serialized = {
@@ -529,7 +561,60 @@ def patient_detail_api(request):
             "latest_vitals": {}
         }
 
-    return Response(serialized, status=status.HTTP_200_OK)
+    from documents.serializers import MedicalDocumentSerializer
+    from summary.models import PhysicianSummary
+    from summary.serializers import PhysicianSummarySerializer
+
+    summary_obj = PhysicianSummary.objects.filter(patient=target_user).first()
+    if summary_obj:
+        summary_data = PhysicianSummarySerializer(summary_obj).data
+    elif docs_qs.exists():
+        latest_doc = docs_qs.first()
+        summary_data = {
+            "summary_id": None,
+            "patient_identifier": serialized["patient_id"],
+            "status": "CONFIRMED",
+            "chief_complaint": latest_doc.title or "General Health Record Summary",
+            "hpi": f"Summary compiled from verified medical records ({docs_qs.count()} document(s) on file).",
+            "past_medical_surgical_history": "",
+            "drug_history": [m.name for m in target_user.medications.filter(is_active=True)],
+            "allergies": serialized["allergies"],
+            "investigations": [],
+            "doctor_notes": f"Most recent record: {latest_doc.title} ({latest_doc.doc_type})",
+            "bilingual_summary": {
+                "hi": {
+                    "chief_complaint": latest_doc.title or "स्वास्थ्य सारांश",
+                    "hpi": "मरीज़ के मेडिकल रिकॉर्ड के आधार पर सारांश तैयार किया गया है।",
+                    "doctor_action": "नियमित रूप से स्वास्थ्य की निगरानी करें।"
+                }
+            }
+        }
+    else:
+        summary_data = {
+            "summary_id": None,
+            "patient_identifier": serialized["patient_id"],
+            "status": "DRAFT",
+            "chief_complaint": "No recent clinical summary recorded.",
+            "hpi": "No medical documents or consultation notes have been uploaded yet.",
+            "past_medical_surgical_history": "",
+            "drug_history": [],
+            "allergies": serialized["allergies"],
+            "investigations": [],
+            "doctor_notes": "",
+            "bilingual_summary": {}
+        }
+
+    response_data = {
+        **serialized,
+        "patient": serialized,
+        "latest_vitals": latest if profile else {},
+        "vitals_history": VitalReadingSerializer(target_user.vital_readings.all()[:30], many=True).data,
+        "medications": PatientMedicationSerializer(target_user.medications.filter(is_active=True), many=True).data,
+        "documents": MedicalDocumentSerializer(docs_qs[:30], many=True).data,
+        "summary": summary_data,
+    }
+
+    return Response(response_data, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -542,7 +627,7 @@ def medications_list_api(request):
     patient_id = request.query_params.get('patient_id', '').strip()
     target_user = request.user
 
-    if patient_id:
+    if patient_id and not is_patient_placeholder(patient_id):
         if request.user.is_patient:
             profile = getattr(request.user, 'patient_profile', None)
             allowed = {request.user.username}
@@ -640,10 +725,10 @@ def vitals_api(request):
     GET: Returns vitals history for trend visualizations.
     POST: Records a new vital reading in database and updates latest profile vitals.
     """
-    patient_id = request.query_params.get('patient_id', '').strip()
+    patient_id = (request.query_params.get('patient_id') or (request.data.get('patient_id') if isinstance(request.data, dict) else '') or '').strip()
     target_user = request.user
 
-    if patient_id:
+    if patient_id and not is_patient_placeholder(patient_id):
         if request.user.is_patient:
             profile = getattr(request.user, 'patient_profile', None)
             allowed = {request.user.username}
@@ -661,6 +746,9 @@ def vitals_api(request):
 
     if request.method == 'POST':
         data = request.data
+        weight_val = data.get('weight_kg') if data.get('weight_kg') is not None else data.get('weight')
+        height_val = data.get('height_cm') if data.get('height_cm') is not None else data.get('height')
+
         reading = VitalReading.objects.create(
             patient=target_user,
             heart_rate=data.get('heart_rate'),
@@ -669,38 +757,93 @@ def vitals_api(request):
             spo2=data.get('spo2'),
             temperature=data.get('temperature'),
             glucose=data.get('glucose'),
+            weight_kg=weight_val,
+            height_cm=height_val,
             status=data.get('status', 'Normal'),
             notes=data.get('notes', 'Manual patient entry')
         )
 
         profile = getattr(target_user, 'patient_profile', None)
+        latest = dict(profile.latest_vitals or {}) if profile else {}
+
+        if reading.heart_rate is not None:
+            latest["heart_rate"] = reading.heart_rate
+        if reading.bp_systolic is not None:
+            latest["bp_systolic"] = reading.bp_systolic
+        if reading.bp_diastolic is not None:
+            latest["bp_diastolic"] = reading.bp_diastolic
+        if reading.bp_systolic and reading.bp_diastolic:
+            latest["blood_pressure"] = f"{reading.bp_systolic}/{reading.bp_diastolic}"
+        elif latest.get("bp_systolic") and latest.get("bp_diastolic"):
+            latest["blood_pressure"] = f"{latest['bp_systolic']}/{latest['bp_diastolic']}"
+        if reading.spo2 is not None:
+            latest["spo2"] = reading.spo2
+        if reading.temperature is not None:
+            latest["temperature"] = reading.temperature
+        if reading.glucose is not None:
+            latest["glucose"] = reading.glucose
+        if reading.weight_kg is not None:
+            latest["weight_kg"] = reading.weight_kg
+        if reading.height_cm is not None:
+            latest["height_cm"] = reading.height_cm
+        if reading.status:
+            latest["status"] = reading.status
+        latest["recorded_at"] = reading.recorded_at.isoformat()
+
         if profile:
-            profile.latest_vitals = {
-                **(profile.latest_vitals or {}),
-                "heart_rate": reading.heart_rate,
-                "bp_systolic": reading.bp_systolic,
-                "bp_diastolic": reading.bp_diastolic,
-                "blood_pressure": f"{reading.bp_systolic}/{reading.bp_diastolic}" if (reading.bp_systolic and reading.bp_diastolic) else None,
-                "spo2": reading.spo2,
-                "temperature": reading.temperature,
-                "glucose": reading.glucose,
-                "status": reading.status
-            }
+            profile.latest_vitals = latest
             profile.save(update_fields=['latest_vitals'])
 
         return Response({
             "status": "success",
             "message": "Vital reading recorded successfully.",
             "reading": VitalReadingSerializer(reading).data,
-            "latest_vitals": profile.latest_vitals if profile else {}
+            "latest_vitals": latest,
+            "latest": latest
         }, status=status.HTTP_201_CREATED)
 
     readings = target_user.vital_readings.all()[:30]
     serializer = VitalReadingSerializer(readings, many=True)
     profile = getattr(target_user, 'patient_profile', None)
+    latest = dict(profile.latest_vitals or {}) if profile else {}
+
+    # If latest is empty or missing metrics, backfill from latest VitalReading in db
+    if readings.exists():
+        r0 = readings.first()
+        if not latest:
+            latest = {
+                "heart_rate": r0.heart_rate,
+                "bp_systolic": r0.bp_systolic,
+                "bp_diastolic": r0.bp_diastolic,
+                "blood_pressure": f"{r0.bp_systolic}/{r0.bp_diastolic}" if (r0.bp_systolic and r0.bp_diastolic) else None,
+                "spo2": r0.spo2,
+                "temperature": r0.temperature,
+                "glucose": r0.glucose,
+                "weight_kg": r0.weight_kg,
+                "height_cm": r0.height_cm,
+                "status": r0.status,
+                "recorded_at": r0.recorded_at.isoformat()
+            }
+            if profile:
+                profile.latest_vitals = latest
+                profile.save(update_fields=['latest_vitals'])
+        else:
+            changed = False
+            if latest.get("weight_kg") is None and r0.weight_kg is not None:
+                latest["weight_kg"] = r0.weight_kg
+                changed = True
+            if latest.get("height_cm") is None and r0.height_cm is not None:
+                latest["height_cm"] = r0.height_cm
+                changed = True
+            if changed and profile:
+                profile.latest_vitals = latest
+                profile.save(update_fields=['latest_vitals'])
+
     return Response({
-        "latest": profile.latest_vitals if profile else {},
+        "latest": latest,
+        "latest_vitals": latest,
         "history": serializer.data,
+        "readings": serializer.data,
         "count": len(serializer.data)
     }, status=status.HTTP_200_OK)
 
@@ -715,7 +858,7 @@ def agent_conversations_api(request):
     """
     target_user = request.user
     patient_id = request.query_params.get('patient_id') or request.data.get('patient_id')
-    if patient_id and str(patient_id).strip():
+    if patient_id and not is_patient_placeholder(patient_id):
         req_id = str(patient_id).strip()
         if request.user.is_patient:
             profile = getattr(request.user, 'patient_profile', None)
@@ -778,7 +921,7 @@ def agent_chat_api(request):
     patient_id = request.query_params.get('patient_id') or request.data.get('patient_id') or ''
     target_user = request.user
 
-    if patient_id and str(patient_id).strip():
+    if patient_id and not is_patient_placeholder(patient_id):
         req_id = str(patient_id).strip()
         if request.user.is_patient:
             profile = getattr(request.user, 'patient_profile', None)
@@ -892,13 +1035,19 @@ def agent_chat_api(request):
             "text": m.text
         })
 
-    # 4. Generate AI response (with model fallbacks and clinical grounding)
+    # 4. Generate AI response (with model fallbacks, multilingual support, and clinical grounding)
+    language = (request.data.get('language') or (profile.preferred_language if profile else '') or 'en').strip()
+    if profile and request.data.get('language') and profile.preferred_language != request.data.get('language'):
+        profile.preferred_language = request.data.get('language')
+        profile.save(update_fields=['preferred_language'])
+
     ai_service = AIService()
     ai_result = ai_service.generate_response(
         user_query=text,
         patient_context_str=context_str,
         safety_assessment=safety_assessment,
-        recent_messages=recent_history
+        recent_messages=recent_history,
+        language=language
     )
 
     # Update conversation title if default

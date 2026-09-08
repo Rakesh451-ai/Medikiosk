@@ -34,6 +34,7 @@ class DocumentScanView(APIView):
 
     def post(self, request):
         uploaded_file = request.FILES.get('file')
+        client_text = request.data.get('extracted_text', '').strip()
         if not uploaded_file:
             return Response({
                 "status": "error",
@@ -42,7 +43,7 @@ class DocumentScanView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         doc_service = DocumentService()
-        result = doc_service.process_uploaded_file(uploaded_file, user=request.user)
+        result = doc_service.process_uploaded_file(uploaded_file, user=request.user, client_text=client_text)
 
         if not result.get('success') or not result.get('can_extract'):
             return Response({
@@ -55,6 +56,7 @@ class DocumentScanView(APIView):
             "status": "success",
             "can_extract": True,
             "document": result['document'],
+            "parsed_data": result['parsed_data'],
             "medications": result['medications'],
             "lab_results": result['lab_results'],
             "allergy_warning": result['allergy_warning'],
@@ -86,10 +88,16 @@ class DocumentConfirmView(APIView):
             file_obj=request.FILES.get('file')
         )
 
+        profile_data = None
+        if hasattr(request.user, 'patient_profile'):
+            from accounts.serializers import PatientProfileSerializer
+            profile_data = PatientProfileSerializer(request.user.patient_profile).data
+
         return Response({
             "status": "success",
             "message": "Document confirmed and saved to your medical records.",
-            "document": saved
+            "document": saved,
+            "updated_profile": profile_data
         }, status=status.HTTP_201_CREATED)
 
 
@@ -197,8 +205,11 @@ class PatientDocumentTimelineView(APIView):
 
     def get(self, request, patient_id):
         target_user = request.user
-        if patient_id and patient_id.strip():
-            req_id = patient_id.strip()
+        cleaned_id = (patient_id or '').strip()
+        is_placeholder = cleaned_id.lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
+
+        if cleaned_id and not is_placeholder:
+            req_id = cleaned_id
             if request.user.is_patient:
                 profile = getattr(request.user, 'patient_profile', None)
                 allowed = {request.user.username}
@@ -211,11 +222,14 @@ class PatientDocumentTimelineView(APIView):
                     )
             elif request.user.is_clinical_staff:
                 found, _, _ = find_user_by_identifier(req_id)
+                if found:
+                    target_user = found
+
         filter_q = Q(patient=target_user)
         if hasattr(target_user, 'username'):
             filter_q |= Q(patient_identifier=target_user.username)
-        if patient_id and patient_id.strip():
-            filter_q |= Q(patient_identifier=patient_id.strip())
+        if cleaned_id and not is_placeholder:
+            filter_q |= Q(patient_identifier=cleaned_id)
 
         docs = MedicalDocument.objects.filter(filter_q).distinct().order_by('-uploaded_at')
         records = ExtractedRecord.objects.filter(document__in=docs).order_by('-document_date', '-created_at')
@@ -237,8 +251,9 @@ def list_documents(request):
     """
     patient_id = request.query_params.get('patient_id', '').strip()
     target_user = request.user
+    is_placeholder = patient_id.lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
 
-    if patient_id:
+    if patient_id and not is_placeholder:
         if request.user.is_patient:
             profile = getattr(request.user, 'patient_profile', None)
             allowed = {request.user.username}
@@ -268,14 +283,19 @@ def list_documents(request):
         labs = list(d.extracted_records.filter(record_type=ExtractedRecord.RecordType.LAB_RESULT).values_list('structured_data', flat=True))
         diag_rec = d.extracted_records.filter(record_type=ExtractedRecord.RecordType.DIAGNOSIS).first()
         diagnosis = diag_rec.structured_data.get('condition', '') if diag_rec else ''
+        doc_doctor = diag_rec.structured_data.get('doctor', '') if diag_rec else ''
+        doc_facility = diag_rec.structured_data.get('facility', '') if diag_rec else ''
+
+        doctor = doc_doctor or (profile.primary_doctor if profile else '') or ''
+        facility = doc_facility or (profile.hospital_name if profile else '') or ''
 
         doc_list.append({
             "id": d.id,
             "doc_id": d.doc_id,
             "title": d.title,
             "doc_type": d.get_doc_type_display(),
-            "doctor": (profile.primary_doctor if profile else '') or "Attending Physician",
-            "facility": (profile.hospital_name if profile else '') or "Medical Center",
+            "doctor": doctor,
+            "facility": facility,
             "diagnosis": diagnosis,
             "date": d.uploaded_at.strftime('%Y-%m-%d'),
             "extracted_text": d.raw_text,

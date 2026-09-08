@@ -9,11 +9,103 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 
+export const SUPPORTED_LANGUAGES = [
+  { code: 'en-IN', name: 'English', native: 'English', flag: '🇮🇳' },
+  { code: 'hi-IN', name: 'Hindi', native: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'bn-IN', name: 'Bengali', native: 'বাংলা', flag: '🇮🇳' },
+  { code: 'mr-IN', name: 'Marathi', native: 'मराठी', flag: '🇮🇳' },
+  { code: 'gu-IN', name: 'Gujarati', native: 'ગુજરાતી', flag: '🇮🇳' },
+  { code: 'ta-IN', name: 'Tamil', native: 'தமிழ்', flag: '🇮🇳' },
+  { code: 'te-IN', name: 'Telugu', native: 'తెలుగు', flag: '🇮🇳' },
+  { code: 'kn-IN', name: 'Kannada', native: 'ಕನ್ನಡ', flag: '🇮🇳' },
+  { code: 'pa-IN', name: 'Punjabi', native: 'ਪੰਜਾਬੀ', flag: '🇮🇳' },
+  { code: 'ml-IN', name: 'Malayalam', native: 'മലയാളം', flag: '🇮🇳' },
+];
+
+export const QUICK_REPLIES_BY_LANG = {
+  'en-IN': [
+    "💊 When should I take my medicines?",
+    "🩺 Are my vitals normal today?",
+    "⚠️ Are my medicines safe with my allergies?",
+    "🏥 How do I see a doctor or nurse?"
+  ],
+  'hi-IN': [
+    "💊 मुझे अपनी दवाइयाँ कब लेनी चाहिए?",
+    "🩺 क्या मेरे वाइटल्स आज सामान्य हैं?",
+    "⚠️ क्या मेरी दवाइयाँ मेरी एलर्जी के साथ सुरक्षित हैं?",
+    "🏥 मुझे डॉक्टर या नर्स से कैसे परामर्श लेना चाहिए?"
+  ],
+  'bn-IN': [
+    "💊 আমার কখন ওষুধ খাওয়া উচিত?",
+    "🩺 আজ আমার ভাইটালס কি স্বাভাবিক?",
+    "⚠️ আমার ওষুধের কি কোনো অ্যালার্জি ঝুঁকি আছে?",
+    "🏥 আমি কীভাবে ডাক্তারের সাথে দেখা করব?"
+  ],
+  'mr-IN': [
+    "💊 मी माझी औषधे कधी घ्यावीत?",
+    "🩺 आज माझे व्हायटल्स सामान्य आहेत का?",
+    "⚠️ औषधे माझ्या ऍलर्जीसाठी सुरक्षित आहेत का?",
+    "🏥 डॉक्टरांचा सल्ला कसा घ्यावा?"
+  ],
+  'gu-IN': [
+    "💊 મારે મારી દવાઓ ક્યારે લેવી જોઈએ?",
+    "🩺 શું મારા વાઇટલ્સ આજે સામાન્ય છે?",
+    "⚠️ શું મારી દવાઓ એલર્જી સાથે સુરક્ષિત છે?",
+    "🏥 મારે ડૉક્ટર સાથે કેવી રીતે વાત કરવી?"
+  ],
+  'ta-IN': [
+    "💊 நான் எப்போது மருந்துகளை உட்கொள்ள வேண்டும்?",
+    "🩺 எனது உடல்நிலைக் குறியீடுகள் இயல்பானதா?",
+    "⚠️ ஒவ்வாமைகளுக்கு மருந்துகள் பாதுகாப்பானவையா?",
+    "🏥 மருத்துவரை எவ்வாறு அணுகுவது?"
+  ],
+  'te-IN': [
+    "💊 నేను నా మందులను ఎప్పుడు తీసుకోవాలి?",
+    "🩺 నా వైటల్స్ ఈ రోజు సాధారణంగా ఉన్నాయా?",
+    "⚠️ అలెర్జీలతో నా మందులు సురక్షితమేనా?",
+    "🏥 నేను వైద్యుడిని ఎలా సంప్రదించాలి?"
+  ],
+  'kn-IN': [
+    "💊 ನಾನು ನನ್ನ ಔಷಧಿಗಳನ್ನು ಯಾವಾಗ ತೆಗೆದುಕೊಳ್ಳಬೇಕು?",
+    "🩺 ಇಂದು ನನ್ನ ವೈಟಲ್ಸ್ ಸಾಮಾನ್ಯವಾಗಿದೆಯೇ?",
+    "⚠️ ಅಲರ್ಜಿಗಳೊಂದಿಗೆ ಔಷಧಿಗಳು ಸುರಕ್ಷಿತವೇ?",
+    "🏥 ವೈದ್ಯರನ್ನು ಹೇಗೆ ಸಂಪರ್ಕಿಸುವುದು?"
+  ],
+  'pa-IN': [
+    "💊 ਮੈਨੂੰ ਦਵਾਈਆਂ ਕਦੋਂ ਲੈਣੀਆਂ ਚਾਹੀਦੀਆਂ ਹਨ?",
+    "🩺 ਕੀ ਮੇਰੇ ਵਾਈਟਲ ਅੱਜ ਆਮ ਹਨ?",
+    "⚠️ ਕੀ ਮੇਰੀਆਂ ਦਵਾਈਆਂ ਐਲਰਜੀ ਲਈ ਸੁਰੱਖਿਅਤ ਹਨ?",
+    "🏥 ਡਾਕਟਰ ਨੂੰ ਕਿਵੇਂ ਮਿਲਣਾ ਹੈ?"
+  ],
+  'ml-IN': [
+    "💊 മരുന്നുകൾ എപ്പോഴാണ് കഴിക്കേണ്ടത്?",
+    "🩺 ഇന്നത്തെ എന്റെ വൈറ്റലുകൾ സാധാരണമാണോ?",
+    "⚠️ അലർജിയുള്ള മരുന്നുകൾ സുരക്ഷിതമാണോ?",
+    "🏥 ഡോക്ടറെ എങ്ങനെ കാണാം?"
+  ]
+};
+
 export function AgentPage({ patient, vitals, medications = [] }) {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
+
+  // Multilingual State
+  const [selectedLanguage, setSelectedLanguage] = useState(() => {
+    try {
+      const saved = localStorage.getItem('medikiosk_assistant_lang');
+      if (saved) return saved;
+    } catch (e) {}
+    if (patient?.preferred_language) {
+      const match = SUPPORTED_LANGUAGES.find(
+        (l) => l.code === patient.preferred_language || l.code.startsWith(patient.preferred_language)
+      );
+      if (match) return match.code;
+    }
+    return 'en-IN';
+  });
+  const [availableVoices, setAvailableVoices] = useState([]);
   
   // Voice & Speech Recognition State
   const [speechState, setSpeechState] = useState('IDLE'); // 'IDLE' | 'LISTENING' | 'PROCESSING' | 'ERROR'
@@ -54,6 +146,35 @@ export function AgentPage({ patient, vitals, medications = [] }) {
     initAgent();
   }, [patient?.patient_id]);
 
+  // Available voices for TTS
+  useEffect(() => {
+    const updateVoices = () => {
+      if ('speechSynthesis' in window) {
+        setAvailableVoices(window.speechSynthesis.getVoices() || []);
+      }
+    };
+    updateVoices();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
+
+  const handleLanguageChange = (newLang) => {
+    setSelectedLanguage(newLang);
+    try {
+      localStorage.setItem('medikiosk_assistant_lang', newLang);
+    } catch (e) {}
+    stopSpeaking();
+    if (speechState === 'LISTENING') {
+      stopListening();
+    }
+  };
+
   // Load chat messages for a specific conversation
   const loadHistory = async (convId) => {
     try {
@@ -62,19 +183,19 @@ export function AgentPage({ patient, vitals, medications = [] }) {
         setMessages(history);
       } else {
         const patientFirstName = patient?.name ? patient.name.split(' ')[0] : 'there';
+        const isHindi = selectedLanguage.startsWith('hi');
+        const defaultText = isHindi
+          ? `नमस्ते ${patientFirstName}! मैं आपका MediKiosk हेल्थ असिस्टेंट हूँ। आपके स्वास्थ्य आंकड़े और दवाइयाँ तैयार हैं।\n\nमैं आज आपकी क्या मदद कर सकता हूँ? आप नीचे दिए गए किसी प्रश्न पर टैप कर सकते हैं, या बोलने के लिए माइक दबा सकते हैं!`
+          : `Hello ${patientFirstName}! I am your MediKiosk Health Assistant. I have your health records, medicines, and vitals ready.\n\nHow can I help you today? You can tap any question below, or tap the microphone to speak with me!`;
+
         setMessages([
           {
             id: 'init',
             sender: 'agent',
-            text: `Hello ${patientFirstName}! I am your MediKiosk Health Assistant. I have your health records, medicines, and vitals ready.\n\nHow can I help you today? You can tap any question below, or tap the microphone to speak with me!`,
+            text: defaultText,
             urgency: 'normal',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            quick_replies: [
-              "💊 When should I take my medicines?",
-              "🩺 Are my vitals normal today?",
-              "⚠️ Are my medicines safe with my allergies?",
-              "🏥 How do I see a doctor or nurse?"
-            ]
+            quick_replies: QUICK_REPLIES_BY_LANG[selectedLanguage] || QUICK_REPLIES_BY_LANG['en-IN']
           }
         ]);
       }
@@ -153,85 +274,144 @@ export function AgentPage({ patient, vitals, medications = [] }) {
     }
 
     stopSpeaking();
-    // Clean text for speech (remove markdown symbols)
+    // Clean text for speech (remove markdown symbols, emojis, and links)
     const cleanSpeech = text
       .replace(/[*_#`~•]/g, '')
-      .replace(/🚨|⚠️|💊|🩺|🏥|📞|📍/g, '')
+      .replace(/🚨|⚠️|💊|🩺|🏥|📞|📍|✨|💬|🇮🇳/g, '')
+      .replace(/https?:\/\/\S+/g, '')
       .trim();
 
-    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-      setSpeakingMsgId(msgId);
-    };
-    utterance.onend = () => {
+    if (!cleanSpeech) return;
+
+    try {
+      const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      utterance.lang = selectedLanguage;
+
+      const voices = availableVoices.length > 0 ? availableVoices : (window.speechSynthesis.getVoices() || []);
+      const langPrefix = selectedLanguage.split('-')[0].toLowerCase();
+      
+      // Look for exact locale match or language prefix match
+      const matchedVoice = voices.find(v => v.lang.toLowerCase() === selectedLanguage.toLowerCase()) 
+        || voices.find(v => v.lang.toLowerCase().replace('_', '-').startsWith(langPrefix))
+        || voices.find(v => v.lang.toLowerCase().includes(langPrefix));
+
+      if (matchedVoice) {
+        utterance.voice = matchedVoice;
+      }
+
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+        setSpeakingMsgId(msgId);
+      };
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setSpeakingMsgId(null);
+      };
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis utterance error:', e);
+        setIsSpeaking(false);
+        setSpeakingMsgId(null);
+      };
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('TTS playback error:', e);
       setIsSpeaking(false);
       setSpeakingMsgId(null);
-    };
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      setSpeakingMsgId(null);
-    };
-    window.speechSynthesis.speak(utterance);
+    }
   };
 
-  // Speech Recognition (STT)
-  const startListening = () => {
+  // Speech Recognition (STT) with microphone permission check and interim streaming
+  const startListening = async () => {
     stopSpeaking();
     setSpeechError('');
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setSpeechState('ERROR');
-      setSpeechError('Speech recognition is not supported in this browser. Please type your question.');
-      setTimeout(() => setSpeechState('IDLE'), 4000);
+      setSpeechError("Voice typing isn't supported in this browser. You can type your message instead.");
       return;
     }
 
+    // Step 1: Explicitly request/verify microphone permission via getUserMedia
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Immediately release the audio tracks so SpeechRecognition acquires mic cleanly
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (permErr) {
+        console.warn('Microphone permission request denied or failed:', permErr);
+        setSpeechState('ERROR');
+        setSpeechError("Microphone permission is required to use voice typing. Please allow microphone access in your browser settings and try again.");
+        return;
+      }
+    }
+
+    // Step 2: Initialize SpeechRecognition
     try {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
+      }
+
       const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.lang = selectedLanguage;
+      recognition.continuous = true;
+      recognition.interimResults = true;
       recognitionRef.current = recognition;
 
       recognition.onstart = () => {
         setSpeechState('LISTENING');
+        setSpeechError('');
       };
 
       recognition.onresult = (e) => {
-        const transcript = e.results[0][0].transcript;
-        setSpeechState('PROCESSING');
-        setInputText(transcript);
-        setTimeout(() => {
-          setSpeechState('IDLE');
-          handleSend(transcript);
-        }, 400);
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = 0; i < e.results.length; i++) {
+          const res = e.results[i];
+          if (res.isFinal) {
+            finalTranscript += res[0].transcript + ' ';
+          } else {
+            interimTranscript += res[0].transcript;
+          }
+        }
+
+        const combined = (finalTranscript + interimTranscript).trim();
+        if (combined) {
+          setInputText(combined);
+        }
       };
 
       recognition.onerror = (e) => {
         console.warn('Speech recognition error:', e.error);
-        setSpeechState('ERROR');
-        setSpeechError(e.error === 'not-allowed' 
-          ? 'Microphone permission denied. Please allow microphone access or type.'
-          : 'Could not capture voice clearly. Please try again or type.');
-        setTimeout(() => setSpeechState('IDLE'), 4000);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          setSpeechState('ERROR');
+          setSpeechError("Microphone permission is required to use voice typing. Please allow microphone access in your browser settings and try again.");
+        } else if (e.error === 'no-speech') {
+          // Patient hasn't spoken yet; keep waiting or listening
+        } else {
+          setSpeechState('ERROR');
+          setSpeechError(
+            e.error === 'network'
+              ? 'Voice network recognition failed. Please check your internet connection or type.'
+              : `Voice capture note: ${e.error}. Please try again or type.`
+          );
+        }
       };
 
       recognition.onend = () => {
-        if (speechState === 'LISTENING') {
-          setSpeechState('IDLE');
-        }
+        setSpeechState('IDLE');
       };
 
       recognition.start();
     } catch (err) {
       console.warn('Failed to start speech recognition:', err);
       setSpeechState('ERROR');
-      setSpeechError('Microphone could not be initialized.');
-      setTimeout(() => setSpeechState('IDLE'), 3000);
+      setSpeechError("Microphone could not be initialized. Please verify browser permissions and try again.");
     }
   };
 
@@ -248,6 +428,10 @@ export function AgentPage({ patient, vitals, medications = [] }) {
 
   // Send Message Handler
   const handleSend = async (customText) => {
+    if (speechState === 'LISTENING') {
+      stopListening();
+    }
+
     const query = (customText || inputText).trim();
     if (!query || isAgentTyping) return;
 
@@ -266,11 +450,12 @@ export function AgentPage({ patient, vitals, medications = [] }) {
     setIsAgentTyping(true);
 
     try {
-      const res = await api.sendChatMessage(
-        query,
-        currentConversationId,
-        patient?.patient_id || ''
-      );
+      const res = await api.sendChatMessage({
+        text: query,
+        conversation_id: currentConversationId,
+        patient_id: patient?.patient_id || '',
+        language: selectedLanguage
+      });
       setIsAgentTyping(false);
       setMessages((prev) => [...prev, res]);
 
@@ -420,12 +605,26 @@ export function AgentPage({ patient, vitals, medications = [] }) {
                   <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
                     <span className="text-[10px] text-gray-500 font-bold block">Blood Pressure</span>
                     <strong className="text-[#052e0a] text-sm">
-                      {getBpDisplay() || '— / —'}
+                      {getBpDisplay() || '—'}
                     </strong>
                     <span className="text-[10px] text-emerald-700 font-bold block">
                       {getBpDisplay() ? '✓ Target' : 'Not recorded'}
                     </span>
                   </div>
+                  {vitals?.spo2 ? (
+                    <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-gray-500 font-bold block">Oxygen (SpO2)</span>
+                      <strong className="text-[#052e0a] text-sm">{vitals.spo2}%</strong>
+                      <span className="text-[10px] text-emerald-700 font-bold block">Target 95-100%</span>
+                    </div>
+                  ) : null}
+                  {vitals?.temperature ? (
+                    <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-gray-500 font-bold block">Temperature</span>
+                      <strong className="text-[#052e0a] text-sm">{vitals.temperature}°F</strong>
+                      <span className="text-[10px] text-emerald-700 font-bold block">Body Temp</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -486,7 +685,7 @@ export function AgentPage({ patient, vitals, medications = [] }) {
           <Card className="lg:col-span-8 shadow-md border-2 border-emerald-200/80 overflow-hidden flex flex-col h-[560px] sm:h-[600px] w-full">
             
             {/* Top Bar */}
-            <div className="w-full bg-[#3f51b5] py-3.5 px-4 sm:px-5 shadow-sm flex items-center justify-between text-white">
+            <div className="w-full bg-[#3f51b5] py-3 px-4 sm:px-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between text-white gap-2.5">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[#ff9800] flex items-center justify-center text-gray-950 font-black text-sm shadow-xs">
                   💬
@@ -495,19 +694,41 @@ export function AgentPage({ patient, vitals, medications = [] }) {
                   <div className="flex items-center gap-2">
                     <span className="font-extrabold text-sm block leading-tight">Health Assistant</span>
                     {conversations.length > 0 && (
-                      <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full text-blue-100">
+                      <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full text-blue-100 hidden md:inline">
                         Thread #{currentConversationId || 'Active'}
                       </span>
                     )}
                   </div>
-                  <span className="text-[10px] text-blue-200">Speaks simple, friendly English</span>
+                  <span className="text-[10px] text-blue-200">
+                    {SUPPORTED_LANGUAGES.find(l => l.code === selectedLanguage)?.native || 'Multilingual'} Consultation
+                  </span>
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2">
+              {/* Action Buttons: Language Selector + Voice Readout Toggle */}
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                {/* Language Dropdown */}
+                <div className="relative inline-flex items-center">
+                  <label htmlFor="assistant-language-select" className="sr-only">Choose Language</label>
+                  <select
+                    id="assistant-language-select"
+                    aria-label="Select Consultation Language"
+                    value={selectedLanguage}
+                    onChange={(e) => handleLanguageChange(e.target.value)}
+                    className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold py-1.5 pl-3 pr-7 rounded-full border border-white/30 focus:outline-none focus:ring-2 focus:ring-[#ff9800] cursor-pointer appearance-none shadow-xs"
+                  >
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <option key={lang.code} value={lang.code} className="text-gray-900 bg-white font-medium">
+                        {lang.native} ({lang.name})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-white absolute right-2 pointer-events-none" />
+                </div>
+
                 {/* Voice Readout Toggle */}
                 <button
+                  type="button"
                   onClick={() => {
                     if (isSpeaking) stopSpeaking();
                     setVoiceMuted(!voiceMuted);
@@ -517,6 +738,7 @@ export function AgentPage({ patient, vitals, medications = [] }) {
                       ? 'bg-white/20 text-white hover:bg-white/30'
                       : 'bg-[#ff9800] text-gray-950 font-black ring-2 ring-white/60'
                   }`}
+                  aria-label={voiceMuted ? "Unmute voice responses" : "Mute voice responses"}
                   title={voiceMuted ? "Click to have replies spoken aloud" : "Voice is ON (click to mute)"}
                 >
                   {voiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -624,7 +846,11 @@ export function AgentPage({ patient, vitals, medications = [] }) {
                   <div className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce"></div>
                   <div className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce delay-100"></div>
                   <div className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce delay-200"></div>
-                  <span>Assistant is analyzing your medical chart & thinking...</span>
+                  <span>
+                    {selectedLanguage.startsWith('hi') 
+                      ? "असिस्टेंट आपके मेडिकल रिकॉर्ड की समीक्षा कर रहा है..." 
+                      : "Assistant is analyzing your medical chart & thinking..."}
+                  </span>
                 </div>
               )}
 
@@ -637,7 +863,7 @@ export function AgentPage({ patient, vitals, medications = [] }) {
                   </div>
                   <button
                     onClick={retryLastQuery}
-                    className="px-3 py-1 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 flex items-center gap-1 transition cursor-pointer"
+                    className="px-3 py-1 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 flex items-center gap-1 transition cursor-pointer shadow-xs"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>Retry</span>
@@ -650,15 +876,17 @@ export function AgentPage({ patient, vitals, medications = [] }) {
 
             {/* Speech State Feedback Bar */}
             {speechState === 'LISTENING' && (
-              <div className="px-4 py-2 bg-rose-50 border-t border-rose-200 text-rose-800 text-xs font-bold flex items-center justify-between animate-pulse">
+              <div className="px-4 py-2.5 bg-rose-50 border-t border-rose-200 text-rose-900 text-xs font-bold flex items-center justify-between animate-pulse">
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping"></span>
-                  <span>Listening... Speak your question clearly into the microphone.</span>
+                  <span>
+                    Listening ({SUPPORTED_LANGUAGES.find(l => l.code === selectedLanguage)?.name || 'Audio'})... Speak your question into microphone.
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={stopListening}
-                  className="px-2.5 py-0.5 rounded-md bg-rose-200 hover:bg-rose-300 text-rose-950 text-[11px] font-bold"
+                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer transition shadow-xs"
                 >
                   Done Speaking
                 </button>
@@ -666,15 +894,31 @@ export function AgentPage({ patient, vitals, medications = [] }) {
             )}
 
             {speechError && (
-              <div className="px-4 py-2 bg-amber-50 border-t border-amber-200 text-amber-900 text-xs font-medium flex items-center justify-between">
-                <span>{speechError}</span>
-                <button
-                  type="button"
-                  onClick={() => setSpeechError('')}
-                  className="text-amber-700 text-xs font-bold hover:underline"
-                >
-                  Dismiss
-                </button>
+              <div className="px-4 py-2.5 bg-amber-50 border-t border-amber-200 text-amber-900 text-xs font-medium flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{speechError}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeechError('');
+                      startListening();
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 transition cursor-pointer shadow-xs"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Try Again</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSpeechError('')}
+                    className="text-amber-800 text-xs font-bold hover:underline px-1 cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             )}
 
@@ -683,6 +927,7 @@ export function AgentPage({ patient, vitals, medications = [] }) {
               <button
                 type="button"
                 onClick={speechState === 'LISTENING' ? stopListening : startListening}
+                aria-label={speechState === 'LISTENING' ? "Stop voice listening" : "Start voice listening"}
                 className={`p-3 rounded-2xl transition cursor-pointer shrink-0 ${
                   speechState === 'LISTENING'
                     ? 'bg-rose-600 text-white animate-pulse shadow-md ring-2 ring-rose-300'
@@ -704,13 +949,20 @@ export function AgentPage({ patient, vitals, medications = [] }) {
                   }
                 }}
                 disabled={isAgentTyping}
-                placeholder={isAgentTyping ? "Assistant is thinking..." : "Ask about your medicines, dosage, or test results..."}
+                placeholder={
+                  isAgentTyping
+                    ? (selectedLanguage.startsWith('hi') ? "असिस्टेंट सोच रहा है..." : "Assistant is thinking...")
+                    : (selectedLanguage.startsWith('hi') 
+                        ? "दवाइयों, खुराक या टेस्ट परिणामों के बारे में पूछें या बोलें..." 
+                        : "Ask about your medicines, dosage, or test results...")
+                }
                 className="flex-1 px-4 py-2.5 rounded-2xl border border-gray-300 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium disabled:bg-gray-50"
               />
 
               <button
                 type="submit"
                 disabled={!inputText.trim() || isAgentTyping}
+                aria-label="Send message"
                 className="p-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white transition cursor-pointer shrink-0 shadow-xs"
                 title="Send message"
               >

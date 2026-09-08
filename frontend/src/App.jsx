@@ -20,6 +20,7 @@ export default function App() {
   const [vitals, setVitals] = useState(null);
   const [medications, setMedications] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [apiStatus, setApiStatus] = useState('online');
 
   const location = useLocation();
@@ -35,27 +36,34 @@ export default function App() {
   const refreshData = useCallback(async (patientId = '') => {
     try {
       const pid = patientId || patient?.patient_id;
-      const p = await api.getPatient(pid || '');
+      const [p, vitalsRes, meds, docs] = await Promise.all([
+        api.getPatient(pid || '').catch(() => null),
+        api.getVitals(pid || '').catch(() => null),
+        api.getMedications(pid || '').catch(() => []),
+        api.getDocuments(pid || '').catch(() => [])
+      ]);
+
       if (p) {
         setPatient(prev => ({
           ...(prev || {}),
           ...p,
           name: p.name || prev?.name || 'Patient'
         }));
-        if (p.latest_vitals && Object.keys(p.latest_vitals).length > 0) {
-          setVitals(p.latest_vitals);
-        } else if (!p.latest_vitals) {
-          setVitals(null);
-        }
       }
 
-      const [meds, docs] = await Promise.all([
-        api.getMedications(pid || '').catch(() => []),
-        api.getDocuments(pid || '').catch(() => [])
-      ]);
+      const mergedVitals = (vitalsRes?.latest && Object.keys(vitalsRes.latest).length > 0)
+        ? vitalsRes.latest
+        : (p?.latest_vitals && Object.keys(p.latest_vitals).length > 0 ? p.latest_vitals : null);
+
+      if (mergedVitals) {
+        setVitals(mergedVitals);
+      }
 
       setMedications(Array.isArray(meds) ? meds : []);
       setDocuments(Array.isArray(docs) ? docs : []);
+      if (p?.summary) {
+        setSummary(p.summary);
+      }
       setApiStatus('online');
     } catch (err) {
       console.warn('API refresh error:', err);
@@ -66,6 +74,14 @@ export default function App() {
   // Session verification on initial load
   useEffect(() => {
     let isMounted = true;
+
+    // Guaranteed safety timeout: Never leave user stuck on 'checking_session' splash
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        setAuthStatus(current => (current === 'checking_session' ? 'unauthenticated' : current));
+      }
+    }, 4000);
+
     const verifySession = async () => {
       const token = localStorage.getItem('medikiosk_token');
       if (!token) {
@@ -76,8 +92,12 @@ export default function App() {
         return;
       }
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Session verification timeout')), 3500)
+      );
+
       try {
-        const user = await api.getCurrentUser();
+        const user = await Promise.race([api.getCurrentUser(), timeoutPromise]);
         if (!isMounted) return;
 
         if (user) {
@@ -105,12 +125,12 @@ export default function App() {
             setVitals(loadedPatient.latest_vitals);
           }
           setAuthStatus('authenticated');
-          refreshData(loadedPatient.patient_id);
+          refreshData(loadedPatient.patient_id).catch(() => {});
         } else {
           setAuthStatus('unauthenticated');
         }
       } catch (err) {
-        console.warn('Session verification failed:', err);
+        console.warn('Session verification failed or timed out:', err);
         if (isMounted) {
           api.logout();
           setAuthStatus('unauthenticated');
@@ -134,6 +154,7 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimer);
       window.removeEventListener('medikiosk:unauthorized', handleUnauthorized);
       window.removeEventListener('medikiosk:logout', handleUnauthorized);
     };
@@ -300,6 +321,7 @@ export default function App() {
                   vitals={vitals}
                   medications={medications}
                   documents={documents}
+                  summary={summary}
                   onDataUpdated={() => refreshData(patient?.patient_id)}
                 />
               ) : (
@@ -307,6 +329,7 @@ export default function App() {
               )
             }
           />
+          <Route path="/vitals" element={<Navigate to="/summary" replace />} />
           <Route
             path="/agent"
             element={

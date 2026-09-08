@@ -28,6 +28,15 @@ export function HomePage({
   const [savingAge, setSavingAge] = useState(false);
   const [ageMessage, setAgeMessage] = useState('');
 
+  const bpDisplay = (vitals?.bp_systolic && vitals?.bp_diastolic)
+    ? `${vitals.bp_systolic}/${vitals.bp_diastolic}`
+    : (vitals?.blood_pressure || null);
+
+  const hasAnyVitals = Boolean(
+    vitals && (vitals.heart_rate || bpDisplay || vitals.spo2 || vitals.temperature || vitals.glucose)
+  );
+  const hasHealthData = Boolean(patient?.has_scanned_documents || hasAnyVitals);
+
   const handleSaveAge = async (e) => {
     if (e) e.preventDefault();
     const parsed = parseInt(editAge, 10);
@@ -279,51 +288,100 @@ export function HomePage({
             )}
 
             {/* Live Vitals Mini-Grid or Scan Prompt */}
-            {vitals && (vitals.heart_rate || vitals.bp_systolic || vitals.blood_pressure) ? (
+            {hasAnyVitals ? (
               <div className="grid grid-cols-2 gap-2.5 text-xs">
-                <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
-                    <span>Pulse (Heart)</span>
-                    <Heart className="w-3.5 h-3.5 text-rose-500" />
+                {vitals?.heart_rate ? (
+                  <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                    <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                      <span>Pulse (Heart)</span>
+                      <Heart className="w-3.5 h-3.5 text-rose-500" />
+                    </div>
+                    <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                      {vitals.heart_rate} <small className="text-[10px] font-normal text-slate-500">bpm</small>
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                      ● Normal Range
+                    </span>
                   </div>
-                  <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
-                    {vitals.heart_rate || '--'} <small className="text-[10px] font-normal text-slate-500">bpm</small>
-                  </span>
-                  <span className="text-[10px] text-emerald-700 font-bold block mt-1">
-                    ● Normal Range
-                  </span>
-                </div>
+                ) : null}
 
-                <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
-                  <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
-                    <span>Blood Pressure</span>
-                    <Activity className="w-3.5 h-3.5 text-teal-600" />
+                {bpDisplay ? (
+                  <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                    <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                      <span>Blood Pressure</span>
+                      <Activity className="w-3.5 h-3.5 text-teal-600" />
+                    </div>
+                    <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                      {bpDisplay}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                      ● Blood Pressure
+                    </span>
                   </div>
-                  <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
-                    {vitals.blood_pressure || `${vitals.bp_systolic || 120}/${vitals.bp_diastolic || 80}`}
-                  </span>
-                  <span className="text-[10px] text-emerald-700 font-bold block mt-1">
-                    ● Healthy Range
-                  </span>
-                </div>
+                ) : null}
+
+                {vitals?.spo2 ? (
+                  <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                    <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                      <span>Oxygen (SpO2)</span>
+                      <Droplet className="w-3.5 h-3.5 text-teal-600" />
+                    </div>
+                    <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                      {vitals.spo2}%
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                      ● Normal (95-100%)
+                    </span>
+                  </div>
+                ) : null}
+
+                {vitals?.temperature ? (
+                  <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                    <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                      <span>Temperature</span>
+                      <Thermometer className="w-3.5 h-3.5 text-amber-600" />
+                    </div>
+                    <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                      {vitals.temperature}°F
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                      ● Body Temp
+                    </span>
+                  </div>
+                ) : null}
+
+                {vitals?.glucose ? (
+                  <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                    <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                      <span>Blood Glucose</span>
+                      <Activity className="w-3.5 h-3.5 text-purple-600" />
+                    </div>
+                    <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                      {vitals.glucose} <small className="text-[10px] font-normal text-slate-500">mg/dL</small>
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                      ● Glucose
+                    </span>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="p-3 bg-emerald-100/60 rounded-2xl border border-emerald-300 text-center space-y-1">
                 <HeartPulse className="w-5 h-5 text-emerald-700 mx-auto" />
                 <p className="text-xs font-bold text-[#0f2e1f]">No Vitals Recorded Yet</p>
-                <p className="text-[11px] text-slate-600">Scan a prescription slip or doctor note to extract your health records.</p>
+                <p className="text-[11px] text-slate-600">Record your vitals in Health Summary or scan a prescription slip.</p>
               </div>
             )}
 
             <Button
-              to={patient?.has_scanned_documents ? "/summary" : "/scanner"}
+              to={hasHealthData ? "/summary" : "/scanner"}
               variant="outline"
               size="sm"
               fullWidth
-              icon={patient?.has_scanned_documents ? HeartPulse : Camera}
+              icon={hasHealthData ? HeartPulse : Camera}
               className="bg-white hover:bg-emerald-50 text-[#184a32] border-emerald-900/15"
             >
-              {patient?.has_scanned_documents ? "See Full Health Details" : "Scan Medical Paper"}
+              {hasHealthData ? "See Full Health Details" : "Scan Medical Paper"}
             </Button>
           </div>
 
