@@ -144,19 +144,36 @@ class DocumentUploadView(APIView):
         }, status=status.HTTP_202_ACCEPTED)
 
 
+def is_patient_placeholder(pid):
+    if not pid:
+        return True
+    return str(pid).strip().lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
+
+
+def get_document_by_id_or_uuid(doc_id):
+    if str(doc_id).isdigit():
+        d = MedicalDocument.objects.filter(id=int(doc_id)).first()
+        if d:
+            return d
+    return MedicalDocument.objects.filter(doc_id=doc_id).first()
+
+
 class DocumentStatusView(APIView):
     """
-    Check document OCR status with strict object-level access control.
+    Check document OCR status or delete document with strict object-level access control.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, doc_id):
-        doc = get_object_or_404(MedicalDocument, doc_id=doc_id)
+        doc = get_document_by_id_or_uuid(doc_id)
+        if not doc:
+            return Response({"error": "Medical document not found."}, status=status.HTTP_404_NOT_FOUND)
+
         is_owner = False
         if doc.patient == request.user:
             is_owner = True
         elif doc.patient_identifier:
-            allowed = {request.user.username}
+            allowed = {request.user.username, str(request.user.id)}
             profile = getattr(request.user, 'patient_profile', None)
             if profile:
                 allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
@@ -187,13 +204,71 @@ class DocumentStatusView(APIView):
             plain_summary = "Document received and verified by clinical system."
 
         return Response({
+            "id": doc.id,
             "document_id": doc.doc_id,
             "ocr_status": doc.ocr_status,
             "title": doc.title,
-            "doc_type": doc.doc_type,
+            "doc_type": doc.get_doc_type_display(),
             "plain_language_summary": plain_summary,
             "raw_text": doc.raw_text,
             "records": ExtractedRecordSerializer(doc.extracted_records.all(), many=True).data
+        }, status=status.HTTP_200_OK)
+
+    def delete(self, request, doc_id):
+        """
+        Deletes a medical record belonging to the authenticated patient.
+        Ensures strict ownership verification, file cleanup, and decoupling of unrelated medications.
+        """
+        doc = get_document_by_id_or_uuid(doc_id)
+        if not doc:
+            return Response({"error": "Medical document not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        is_owner = False
+        if doc.patient == request.user:
+            is_owner = True
+        elif doc.patient_identifier:
+            allowed = {request.user.username, str(request.user.id)}
+            profile = getattr(request.user, 'patient_profile', None)
+            if profile:
+                allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
+            if doc.patient_identifier in allowed:
+                is_owner = True
+
+        if not is_owner and not request.user.is_clinical_staff:
+            return Response(
+                {"error": "Forbidden: You cannot delete another patient's medical document."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 1. Clean up file on disk if exists
+        if doc.file:
+            try:
+                import os
+                if hasattr(doc.file, 'path') and os.path.isfile(doc.file.path):
+                    os.remove(doc.file.path)
+            except Exception:
+                pass
+
+        # 2. Update any PatientMedications referencing this document
+        from accounts.models import PatientMedication
+        PatientMedication.objects.filter(source_document=doc).update(source_document=None)
+
+        # 3. Delete document (cascades ExtractedRecords)
+        title = doc.title
+        patient_user = doc.patient
+        doc.delete()
+
+        # 4. Update profile has_scanned_documents status if no documents remain
+        if patient_user and hasattr(patient_user, 'patient_profile'):
+            profile = patient_user.patient_profile
+            has_remaining = MedicalDocument.objects.filter(patient=patient_user).exists()
+            if not has_remaining:
+                profile.has_scanned_documents = False
+                profile.save(update_fields=['has_scanned_documents'])
+
+        return Response({
+            "status": "success",
+            "message": f"Medical record '{title}' deleted successfully."
         }, status=status.HTTP_200_OK)
 
 
@@ -206,30 +281,28 @@ class PatientDocumentTimelineView(APIView):
     def get(self, request, patient_id):
         target_user = request.user
         cleaned_id = (patient_id or '').strip()
-        is_placeholder = cleaned_id.lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
+        is_placeholder = is_patient_placeholder(cleaned_id)
 
-        if cleaned_id and not is_placeholder:
-            req_id = cleaned_id
-            if request.user.is_patient:
+        if request.user.is_patient:
+            target_user = request.user
+            if cleaned_id and not is_placeholder:
                 profile = getattr(request.user, 'patient_profile', None)
-                allowed = {request.user.username}
+                allowed = {request.user.username, str(request.user.id)}
                 if profile:
-                    allowed.update([profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone])
-                if req_id not in allowed:
+                    allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
+                if cleaned_id not in allowed:
                     return Response(
                         {"error": "Forbidden: You cannot access another patient's timeline."},
                         status=status.HTTP_403_FORBIDDEN
                     )
-            elif request.user.is_clinical_staff:
-                found, _, _ = find_user_by_identifier(req_id)
-                if found:
-                    target_user = found
+        elif request.user.is_clinical_staff and cleaned_id and not is_placeholder:
+            found, _, _ = find_user_by_identifier(cleaned_id)
+            if found:
+                target_user = found
 
         filter_q = Q(patient=target_user)
         if hasattr(target_user, 'username'):
             filter_q |= Q(patient_identifier=target_user.username)
-        if cleaned_id and not is_placeholder:
-            filter_q |= Q(patient_identifier=cleaned_id)
 
         docs = MedicalDocument.objects.filter(filter_q).distinct().order_by('-uploaded_at')
         records = ExtractedRecord.objects.filter(document__in=docs).order_by('-document_date', '-created_at')
@@ -251,29 +324,28 @@ def list_documents(request):
     """
     patient_id = request.query_params.get('patient_id', '').strip()
     target_user = request.user
-    is_placeholder = patient_id.lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
+    is_placeholder = is_patient_placeholder(patient_id)
 
-    if patient_id and not is_placeholder:
-        if request.user.is_patient:
+    if request.user.is_patient:
+        target_user = request.user
+        if patient_id and not is_placeholder:
             profile = getattr(request.user, 'patient_profile', None)
-            allowed = {request.user.username}
+            allowed = {request.user.username, str(request.user.id)}
             if profile:
-                allowed.update([profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone])
+                allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
             if patient_id not in allowed:
                 return Response(
                     {"error": "Forbidden: You cannot access another patient's documents."},
                     status=status.HTTP_403_FORBIDDEN
                 )
-        elif request.user.is_clinical_staff:
-            found_user, _, _ = find_user_by_identifier(patient_id)
-            if found_user:
-                target_user = found_user
+    elif request.user.is_clinical_staff and patient_id and not is_placeholder:
+        found_user, _, _ = find_user_by_identifier(patient_id)
+        if found_user:
+            target_user = found_user
 
     filter_q = Q(patient=target_user)
     if hasattr(target_user, 'username'):
         filter_q |= Q(patient_identifier=target_user.username)
-    if patient_id:
-        filter_q |= Q(patient_identifier=patient_id)
     docs = MedicalDocument.objects.filter(filter_q).distinct().order_by('-uploaded_at')
     profile = getattr(target_user, 'patient_profile', None)
 

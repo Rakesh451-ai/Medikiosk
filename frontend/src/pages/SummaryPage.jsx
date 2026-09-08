@@ -3,7 +3,8 @@ import {
   FileText, Pill, Droplet, Activity, Sparkles, Plus, Clock, 
   ChevronRight, RefreshCw, X, ArrowRight, Printer, AlertTriangle, 
   AlertCircle, CheckCircle2, Search, Calendar, User, ShieldCheck, 
-  Download, Eye, ExternalLink, Filter, Layers, Stethoscope, Building2
+  Download, Eye, ExternalLink, Filter, Layers, Stethoscope, Building2,
+  Trash2, Loader2
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
@@ -13,7 +14,7 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 
 // Helper to categorize documents consistently
-export function getDocumentCategory(doc) {
+function getDocumentCategory(doc) {
   const type = (doc?.doc_type || '').toLowerCase();
   if (type.includes('prescript')) return 'Prescription';
   if (type.includes('lab') || type.includes('blood') || type.includes('test') || type.includes('pathology')) return 'Lab Report';
@@ -40,6 +41,29 @@ export function SummaryPage({
   const [activeFilter, setActiveFilter] = useState('All');
   const [summaryLang, setSummaryLang] = useState('en');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [docToDelete, setDocToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirmDeleteDoc = async () => {
+    if (!docToDelete) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteDocument(docToDelete.id);
+      setDocs(prev => prev.filter(d => d.id !== docToDelete.id));
+      if (selectedDoc?.id === docToDelete.id) {
+        setSelectedDoc(null);
+      }
+      setDocToDelete(null);
+      if (onDataUpdated) {
+        onDataUpdated();
+      }
+    } catch (err) {
+      console.error('Failed to delete document from summary:', err);
+      setDocToDelete(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Sync prop changes
   useEffect(() => {
@@ -979,18 +1003,85 @@ export function SummaryPage({
               </div>
             )}
 
-            {/* AI Assistant Button */}
-            <div className="pt-2">
+            {/* Actions: AI Assistant & Delete */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
               <Button
                 to="/agent"
                 variant="primary"
                 size="md"
-                fullWidth
+                className="w-full sm:flex-1 bg-[#297006] hover:bg-[#1f5604] text-white font-bold shadow-xs"
                 icon={Sparkles}
-                className="bg-[#297006] hover:bg-[#1f5604] text-white font-bold shadow-xs"
               >
-                Ask Health Assistant About this Paper
+                Ask Health Assistant
               </Button>
+              <button
+                type="button"
+                onClick={() => setDocToDelete(selectedDoc)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-rose-300 text-rose-600 hover:bg-rose-50 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Record</span>
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* CONFIRMATION MODAL FOR DELETION */}
+      {docToDelete && (
+        <Modal
+          isOpen={Boolean(docToDelete)}
+          onClose={() => !isDeleting && setDocToDelete(null)}
+          title="Delete Medical Record"
+          subtitle="Are you sure you want to permanently delete this document?"
+          icon={Trash2}
+        >
+          <div className="space-y-4 text-xs text-gray-900">
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-rose-900 text-sm">Permanent Action</p>
+                <p className="text-xs text-rose-700 leading-relaxed">
+                  This will permanently delete <span className="font-bold">"{docToDelete.title}"</span> ({docToDelete.doc_type}) from your medical records, including its scanned file, OCR extractions, and associated clinical entries.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 text-xs text-gray-600 space-y-1">
+              <div><span className="font-semibold text-gray-800">Doctor:</span> {docToDelete.doctor || 'Not specified'}</div>
+              <div><span className="font-semibold text-gray-800">Facility:</span> {docToDelete.facility || 'Not specified'}</div>
+              {docToDelete.created_at && (
+                <div><span className="font-semibold text-gray-800">Date:</span> {new Date(docToDelete.created_at).toLocaleDateString()}</div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDocToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDeleteDoc}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirm Delete</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </Modal>

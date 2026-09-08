@@ -22,6 +22,18 @@ export function sanitizePatientId(id) {
   return str;
 }
 
+let isRefreshingToken = false;
+let refreshSubscribers = [];
+
+function onRefreshed(token) {
+  refreshSubscribers.forEach(cb => cb(token));
+  refreshSubscribers = [];
+}
+
+function addRefreshSubscriber(cb) {
+  refreshSubscribers.push(cb);
+}
+
 async function request(endpoint, options = {}, timeoutMs = 10000) {
   const url = `${API_BASE}${endpoint}`;
   const controller = new AbortController();
@@ -42,8 +54,57 @@ async function request(endpoint, options = {}, timeoutMs = 10000) {
     clearTimeout(timer);
   }
 
+  // Handle Token Expiry & Automatic Refresh
   if (res.status === 401) {
+    const isAuthEndpoint = endpoint.includes('/auth/login') ||
+                           endpoint.includes('/auth/unified-login') ||
+                           endpoint.includes('/auth/token/refresh');
+    const refreshToken = localStorage.getItem('medikiosk_refresh');
+
+    if (!isAuthEndpoint && refreshToken && !options._isRetry) {
+      if (isRefreshingToken) {
+        return new Promise((resolve) => {
+          addRefreshSubscriber((newToken) => {
+            const retryHeaders = {
+              ...(options.headers || {}),
+              Authorization: `Bearer ${newToken}`,
+            };
+            resolve(request(endpoint, { ...options, headers: retryHeaders, _isRetry: true }, timeoutMs));
+          });
+        });
+      }
+
+      isRefreshingToken = true;
+      try {
+        const refreshRes = await fetch(`${API_BASE}/auth/token/refresh/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh: refreshToken }),
+        });
+
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          const newAccess = refreshData.access;
+          localStorage.setItem('medikiosk_token', newAccess);
+          isRefreshingToken = false;
+          onRefreshed(newAccess);
+
+          const retryHeaders = {
+            ...(options.headers || {}),
+            Authorization: `Bearer ${newAccess}`,
+          };
+          return request(endpoint, { ...options, headers: retryHeaders, _isRetry: true }, timeoutMs);
+        }
+      } catch (refreshErr) {
+        console.warn('Silent token refresh failed:', refreshErr);
+      } finally {
+        isRefreshingToken = false;
+      }
+    }
+
+    // Refresh impossible or failed -> clear session
     localStorage.removeItem('medikiosk_token');
+    localStorage.removeItem('medikiosk_refresh');
     localStorage.removeItem('medikiosk_user');
     window.dispatchEvent(new Event('medikiosk:unauthorized'));
     const errorData = await res.json().catch(() => ({}));
@@ -276,6 +337,13 @@ export const api = {
 
   getDocument: async (docId) => {
     return await request(`/documents/${docId}/`, {
+      headers: getAuthHeaders(),
+    });
+  },
+
+  deleteDocument: async (docId) => {
+    return await request(`/documents/${docId}/`, {
+      method: 'DELETE',
       headers: getAuthHeaders(),
     });
   },

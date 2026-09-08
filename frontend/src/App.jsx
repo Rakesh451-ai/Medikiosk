@@ -6,18 +6,47 @@ import { ScannerPage } from './pages/ScannerPage';
 import { SummaryPage } from './pages/SummaryPage';
 import { AgentPage } from './pages/AgentPage';
 import { RecordsPage } from './pages/RecordsPage';
-import DoctorDashboard from './pages/doctor/DoctorDashboard';
-import DoctorLogin from './pages/doctor/DoctorLogin';
 import KioskView from './pages/kiosk/KioskView';
 import AuthPage from './pages/auth/AuthPage';
 import AdminPanel from './pages/admin/AdminPanel';
 import { api } from './services/api';
-import { Stethoscope, ShieldCheck, LogOut, Loader2, HeartPulse } from 'lucide-react';
+import { ShieldCheck, LogOut, Loader2, HeartPulse } from 'lucide-react';
+
+function getStoredPatient() {
+  try {
+    const raw = localStorage.getItem('medikiosk_user');
+    if (!raw) return null;
+    const user = JSON.parse(raw);
+    const profile = user.patient_profile || user.profile || {};
+    return {
+      patient_id: profile.mock_abha_id || profile.mock_aadhaar_id || user.username || String(user.id || ''),
+      name: profile.name || user.name || user.first_name || user.username || 'Patient',
+      gender: profile.gender || '',
+      age: profile.age || null,
+      phone: profile.phone || '',
+      mock_abha_id: profile.mock_abha_id || '',
+      mock_aadhaar_id: profile.mock_aadhaar_id || '',
+      blood_group: profile.blood_group || '',
+      allergies: profile.allergies || [],
+      chronic_conditions: profile.chronic_conditions || [],
+      primary_doctor: profile.primary_doctor || '',
+      hospital_name: profile.hospital_name || '',
+      emergency_contact: profile.emergency_contact || '',
+      has_scanned_documents: profile.has_scanned_documents || false,
+      latest_vitals: profile.latest_vitals || null
+    };
+  } catch (_) {
+    return null;
+  }
+}
 
 export default function App() {
-  const [authStatus, setAuthStatus] = useState('checking_session'); // 'checking_session' | 'authenticated' | 'unauthenticated'
-  const [patient, setPatient] = useState(null);
-  const [vitals, setVitals] = useState(null);
+  const [patient, setPatient] = useState(() => getStoredPatient());
+  const [authStatus, setAuthStatus] = useState(() => {
+    const token = localStorage.getItem('medikiosk_token');
+    return token ? 'authenticated' : 'unauthenticated';
+  });
+  const [vitals, setVitals] = useState(() => patient?.latest_vitals || null);
   const [medications, setMedications] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -26,7 +55,6 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isDoctorRoute = location.pathname.startsWith('/doctor');
   const isKioskIntakeRoute = location.pathname.startsWith('/kiosk');
   const isAuthRoute = location.pathname.startsWith('/login') || location.pathname.startsWith('/auth');
   const isAdminRoute = location.pathname.startsWith('/admin');
@@ -75,13 +103,6 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    // Guaranteed safety timeout: Never leave user stuck on 'checking_session' splash
-    const safetyTimer = setTimeout(() => {
-      if (isMounted) {
-        setAuthStatus(current => (current === 'checking_session' ? 'unauthenticated' : current));
-      }
-    }, 4000);
-
     const verifySession = async () => {
       const token = localStorage.getItem('medikiosk_token');
       if (!token) {
@@ -92,12 +113,8 @@ export default function App() {
         return;
       }
 
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Session verification timeout')), 3500)
-      );
-
       try {
-        const user = await Promise.race([api.getCurrentUser(), timeoutPromise]);
+        const user = await api.getCurrentUser();
         if (!isMounted) return;
 
         if (user) {
@@ -120,6 +137,7 @@ export default function App() {
             latest_vitals: profile.latest_vitals || null
           };
 
+          localStorage.setItem('medikiosk_user', JSON.stringify(user));
           setPatient(loadedPatient);
           if (loadedPatient.latest_vitals) {
             setVitals(loadedPatient.latest_vitals);
@@ -130,11 +148,14 @@ export default function App() {
           setAuthStatus('unauthenticated');
         }
       } catch (err) {
-        console.warn('Session verification failed or timed out:', err);
-        if (isMounted) {
-          api.logout();
-          setAuthStatus('unauthenticated');
-          setPatient(null);
+        console.warn('Session verification error:', err);
+        // Only log out on confirmed 401 Unauthorized
+        if (err?.status === 401 || err?.message?.includes('401')) {
+          if (isMounted) {
+            api.logout();
+            setAuthStatus('unauthenticated');
+            setPatient(null);
+          }
         }
       }
     };
@@ -154,7 +175,6 @@ export default function App() {
 
     return () => {
       isMounted = false;
-      clearTimeout(safetyTimer);
       window.removeEventListener('medikiosk:unauthorized', handleUnauthorized);
       window.removeEventListener('medikiosk:logout', handleUnauthorized);
     };
@@ -226,7 +246,7 @@ export default function App() {
   return (
     <div className="min-h-screen w-full bg-[#f0f7f4] text-slate-800 font-sans flex flex-col selection:bg-emerald-600 selection:text-white">
       {/* Floating Header Switcher (Visible on subpages like /scanner, /summary, /agent, etc.) */}
-      {!isDoctorRoute && !isKioskIntakeRoute && !isAuthRoute && !isHomeRoute && !isAdminRoute && (
+      {!isKioskIntakeRoute && !isAuthRoute && !isHomeRoute && !isAdminRoute && (
         <div className="fixed top-3 right-3 z-40 flex items-center gap-2">
           {isAuthenticated ? (
             <div className="flex items-center gap-1.5 bg-white/95 rounded-full p-1 shadow-md border border-emerald-300">
@@ -254,21 +274,11 @@ export default function App() {
               <span>Sign In</span>
             </Link>
           )}
-
-          {/* Doctor Portal Switcher */}
-          <Link
-            to="/doctor"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/85 hover:bg-slate-900 text-white text-xs font-semibold backdrop-blur shadow-md transition-all border border-slate-700/30 group"
-            title="Switch to Clinical Doctor Portal"
-          >
-            <Stethoscope className="w-3.5 h-3.5 text-emerald-400 group-hover:rotate-12 transition-transform" />
-            <span className="hidden sm:inline">Doctor Portal</span>
-          </Link>
         </div>
       )}
 
       {/* Multi-Page Routes */}
-      <main className={`flex-1 w-full flex flex-col ${!isDoctorRoute && !isKioskIntakeRoute && !isAuthRoute && !isAdminRoute ? 'pb-28 md:pb-32' : ''}`}>
+      <main className={`flex-1 w-full flex flex-col ${!isKioskIntakeRoute && !isAuthRoute && !isAdminRoute ? 'pb-28 md:pb-32' : ''}`}>
         <Routes>
           <Route
             path="/"
@@ -349,15 +359,15 @@ export default function App() {
             element={
               isAuthenticated ? (
                 <RecordsPage
+                  patient={patient}
                   documents={documents}
+                  onDataUpdated={() => refreshData(patient?.patient_id)}
                 />
               ) : (
                 <Navigate to="/login" replace />
               )
             }
           />
-          <Route path="/doctor/login" element={<DoctorLogin />} />
-          <Route path="/doctor" element={<DoctorDashboard />} />
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/admin-panel" element={<AdminPanel />} />
           <Route path="/kiosk" element={<KioskView />} />
@@ -386,8 +396,8 @@ export default function App() {
         </Routes>
       </main>
 
-      {/* Universal Bottom Navigation Dock for PC, Tablets & Mobile (hidden on doctor, intake, auth & admin flows) */}
-      {!isDoctorRoute && !isKioskIntakeRoute && !isAuthRoute && !isAdminRoute && (
+      {/* Universal Bottom Navigation Dock for PC, Tablets & Mobile (hidden on intake, auth & admin flows) */}
+      {!isKioskIntakeRoute && !isAuthRoute && !isAdminRoute && (
         <BottomNav documentsCount={documents.length} />
       )}
     </div>

@@ -9,7 +9,7 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 
-export const SUPPORTED_LANGUAGES = [
+const SUPPORTED_LANGUAGES = [
   { code: 'en-IN', name: 'English', native: 'English', flag: '🇮🇳' },
   { code: 'hi-IN', name: 'Hindi', native: 'हिन्दी', flag: '🇮🇳' },
   { code: 'bn-IN', name: 'Bengali', native: 'বাংলা', flag: '🇮🇳' },
@@ -22,7 +22,7 @@ export const SUPPORTED_LANGUAGES = [
   { code: 'ml-IN', name: 'Malayalam', native: 'മലയാളം', flag: '🇮🇳' },
 ];
 
-export const QUICK_REPLIES_BY_LANG = {
+const QUICK_REPLIES_BY_LANG = {
   'en-IN': [
     "💊 When should I take my medicines?",
     "🩺 Are my vitals normal today?",
