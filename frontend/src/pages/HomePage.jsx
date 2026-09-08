@@ -167,9 +167,9 @@ export function HomePage({
               {getGreeting()}, <span className="text-emerald-800">{patient?.name && patient.name !== 'Guest Patient' ? patient.name.split(' ')[0] : 'Patient'}</span>.
             </h1>
 
-            <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
+            {/* <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
               Scan your medical papers, see your health vitals explained in plain English, and ask any questions using your voice or keyboard.
-            </p>
+            </p> */}
 
             {/* Quick Action CTA Buttons */}
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
@@ -195,46 +195,7 @@ export function HomePage({
               </Button>
             </div>
 
-            {/* "How are you feeling?" Stress-Relief Comfort Check */}
-            <div className="pt-2 border-t border-emerald-900/10 text-left">
-              <span className="text-xs font-bold text-slate-600 block mb-2 text-center lg:text-left">
-                💭 How are you feeling today?
-              </span>
-              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2">
-                {[
-                  { id: 'calm', emoji: '😌', label: 'Feeling Relaxed' },
-                  { id: 'check', emoji: '📋', label: 'Just Checking Records' },
-                  { id: 'symptoms', emoji: '🩺', label: 'Have Mild Symptoms' },
-                  { id: 'nurse', emoji: '🆘', label: 'Need Nurse Help' }
-                ].map((mood) => (
-                  <button
-                    key={mood.id}
-                    onClick={() => setSelectedMood(mood.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${selectedMood === mood.id
-                      ? 'bg-[#184a32] text-white border-[#184a32] shadow-xs'
-                      : 'bg-emerald-50/70 hover:bg-emerald-100 text-[#143d2b] border-emerald-200'
-                      }`}
-                  >
-                    <span>{mood.emoji}</span>
-                    <span>{mood.label}</span>
-                  </button>
-                ))}
-              </div>
-
-              {selectedMood && (
-                <div className="mt-2.5 p-3 rounded-2xl bg-emerald-100/70 border border-emerald-300 text-xs text-[#0f2e1f] font-medium flex items-center justify-between gap-3 animate-fade-in">
-                  <span>{moodResponses[selectedMood].text}</span>
-                  {moodResponses[selectedMood].highlight && (
-                    <Link
-                      to={moodResponses[selectedMood].highlight}
-                      className="px-3 py-1 rounded-xl bg-[#184a32] text-white font-bold shrink-0 hover:bg-[#123826] transition"
-                    >
-                      Go Now →
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
+            
           </div>
 
           {/* Quick Patient Identity & Live Health Snapshot Card */}
@@ -555,56 +516,15 @@ export function HomePage({
                 {patient?.age ? `${patient.age} years old` : 'Not documented'}
               </span>
             </div>
-            <form onSubmit={handleSaveAge} className="flex items-center gap-2">
-              <input
-                type="number"
-                min="1"
-                max="120"
-                placeholder={patient?.age ? `Update age (current: ${patient.age})` : "Enter your age (e.g. 28)"}
-                value={editAge}
-                onChange={(e) => setEditAge(e.target.value)}
-                className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              <button
-                type="submit"
-                disabled={savingAge || !editAge}
-                className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer shadow-2xs transition"
-              >
-                {savingAge ? 'Saving...' : 'Save Age'}
-              </button>
-            </form>
-            {ageMessage && (
-              <p className={`text-[11px] font-bold ${ageMessage.includes('successfully') ? 'text-emerald-700' : 'text-rose-600'}`}>
-                {ageMessage}
-              </p>
-            )}
           </div>
 
           {/* Clinical Chart Details */}
           <div className="grid grid-cols-2 gap-2.5">
             <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
-              <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wider">Primary Doctor</span>
-              <p className="font-bold text-gray-900 mt-0.5">{patient?.primary_doctor || (patient?.has_scanned_documents ? 'Not specified' : 'Scan slip to update')}</p>
-            </div>
-            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
               <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wider">Emergency Contact</span>
               <p className="font-bold text-gray-900 mt-0.5">{patient?.emergency_contact || patient?.phone || 'Not provided'}</p>
             </div>
           </div>
-
-          {/* Known Allergies Alert */}
-          {patient?.allergies && patient.allergies.length > 0 ? (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 flex items-center gap-2 font-medium">
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>Documented Allergy: <strong className="font-black">{patient.allergies.join(', ') || 'None'}</strong></span>
-            </div>
-          ) : (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2 font-medium">
-              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{patient?.has_scanned_documents ? 'No known drug allergies reported' : 'Allergies: Scan prescription to extract'}</span>
-            </div>
-          )}
-
           {/* Direct Government ID & Mobile Login Link */}
           <div className="pt-2 border-t border-gray-100 space-y-2">
             <Link
