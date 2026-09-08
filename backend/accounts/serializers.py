@@ -165,8 +165,20 @@ class RegisterPatientSerializer(serializers.Serializer):
     allergies = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
     def validate_phone(self, value):
-        cleaned = value.strip().replace(" ", "").replace("-", "")
+        cleaned = ''.join(c for c in str(value) if c.isdigit())
+        if len(cleaned) < 10:
+            raise serializers.ValidationError("Please enter a valid 10-digit mobile number.")
+        if PatientProfile.objects.filter(phone=cleaned).exists():
+            raise serializers.ValidationError("A patient account with this mobile number is already registered. Please log in.")
         return cleaned
+
+    def validate_username(self, value):
+        if value:
+            cleaned = str(value).strip()
+            if User.objects.filter(username__iexact=cleaned).exists():
+                raise serializers.ValidationError("An account with this username or phone already exists. Please log in.")
+            return cleaned
+        return value
 
     def validate_gender(self, value):
         if isinstance(value, str):
@@ -187,49 +199,49 @@ class RegisterPatientSerializer(serializers.Serializer):
         allergies = validated_data.get('allergies', [])
         password = validated_data.get('password')
 
-        # Generate username if not provided (e.g. pt_9123456780)
+        # Use phone as username if username not provided
         username = validated_data.get('username')
         if not username:
-            username = f"pt_{phone}_{random.randint(100, 999)}"
+            username = phone
 
-        # If mock_abha_id not provided, generate standard 14-digit format: e.g. 14-XXXX-XXXX-XXXX
-        if not mock_abha:
-            rand_12 = ''.join([str(random.randint(0, 9)) for _ in range(12)])
-            mock_abha = f"14-{rand_12[0:4]}-{rand_12[4:8]}-{rand_12[8:12]}"
+        # If mock_abha_id not provided or exists, generate unique 14-digit format: 14-XXXX-XXXX-XXXX
+        if not mock_abha or PatientProfile.objects.filter(mock_abha_id=mock_abha).exists():
+            while True:
+                rand_12 = ''.join([str(random.randint(0, 9)) for _ in range(12)])
+                candidate_abha = f"14-{rand_12[0:4]}-{rand_12[4:8]}-{rand_12[8:12]}"
+                if not PatientProfile.objects.filter(mock_abha_id=candidate_abha).exists():
+                    mock_abha = candidate_abha
+                    break
 
-        # Create or update user
-        user, created = User.objects.get_or_create(
+        first_name = name.split()[0] if name else 'Patient'
+        last_name = ' '.join(name.split()[1:]) if (name and len(name.split()) > 1) else ''
+
+        # Ensure user does not already exist
+        if User.objects.filter(username=username).exists():
+            raise serializers.ValidationError({"username": "An account with this phone or username already exists."})
+
+        # Create persistent patient user with real password
+        user = User.objects.create_user(
             username=username,
-            defaults={
-                'role': User.Role.PATIENT,
-                'first_name': name.split()[0] if name else '',
-                'last_name': ' '.join(name.split()[1:]) if len(name.split()) > 1 else '',
-            }
+            password=password,
+            email=f"{username}@medikiosk.in",
+            first_name=first_name,
+            last_name=last_name,
+            role=User.Role.PATIENT
         )
-        if created or password:
-            user.set_password(password)
-            user.role = User.Role.PATIENT
-            user.save()
 
-        # Create or update Patient Profile
-        profile_defaults = {
-            'name': name,
-            'age': age,
-            'gender': gender,
-            'phone': phone,
-            'preferred_language': lang,
-            'mock_abha_id': mock_abha,
-        }
-        if mock_aadhaar:
-            profile_defaults['mock_aadhaar_id'] = mock_aadhaar
-        if blood_group:
-            profile_defaults['blood_group'] = blood_group
-        if allergies:
-            profile_defaults['allergies'] = allergies
-
-        profile, _ = PatientProfile.objects.update_or_create(
+        # Create Patient Profile with unique identifiers
+        profile = PatientProfile.objects.create(
             user=user,
-            defaults=profile_defaults
+            name=name,
+            age=age,
+            gender=gender,
+            phone=phone,
+            preferred_language=lang,
+            mock_abha_id=mock_abha,
+            mock_aadhaar_id=mock_aadhaar or None,
+            blood_group=blood_group,
+            allergies=allergies or []
         )
         return user
 

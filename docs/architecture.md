@@ -37,7 +37,6 @@ MediKiosk/
 │   ├── src/
 │   │   ├── components/       # Shared UI (Navbar, alert banners, steppers)
 │   │   ├── pages/kiosk/      # /kiosk entry flow (IdentifyScreen, ConverseScreen, KioskView)
-│   │   ├── pages/doctor/     # /doctor entry flow (DoctorDashboard, DoctorLogin)
 │   │   ├── services/         # API client layer (fetch /api/...)
 │   │   └── styles/           # design-tokens.js (shared colors, typography, touch targets)
 │   └── index.html

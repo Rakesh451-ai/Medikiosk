@@ -4,7 +4,7 @@ import {
   Camera, Activity, Bot, FileText, ArrowRight, ShieldCheck,
   Heart, Sparkles, AlertTriangle, Pill, CheckCircle2, ChevronRight,
   Droplet, Thermometer, Smile, HeartPulse, HelpCircle, Shield,
-  User, KeyRound, LogOut, Stethoscope, ShieldAlert
+  User, KeyRound, LogOut, ShieldAlert
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -125,17 +125,8 @@ export function HomePage({
             <span className="inline sm:hidden font-bold">🌿 MediKiosk Portal</span>
           </div>
 
-          {/* Right: Quick Doctor Portal Switcher + User Account */}
+          {/* Right: User Account Profile */}
           <div className="flex items-center gap-2">
-            <Link
-              to="/doctor"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white text-xs font-bold border border-slate-700/60 shadow-xs transition"
-              title="Clinical Doctor Portal"
-            >
-              <Stethoscope className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline">Doctor Portal</span>
-            </Link>
-
             <button
               type="button"
               onClick={() => setShowAccountModal(true)}

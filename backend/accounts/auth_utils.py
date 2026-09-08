@@ -195,10 +195,7 @@ def get_or_create_patient_by_identifier(identifier: str, name: str = None, age: 
         last_name=last_name,
         role=User.Role.PATIENT
     )
-    # Random strong initial password for auto-provisioned patient
-    from django.conf import settings
-    init_pass = 'PatientPass123!' if getattr(settings, 'DEMO_MODE', False) else f"Pt_{random.randint(100000, 999999)}!Pass"
-    user.set_password(init_pass)
+    user.set_unusable_password()
     user.save()
 
     # Generate or format ABHA & Aadhaar
@@ -231,14 +228,10 @@ def get_or_create_patient_by_identifier(identifier: str, name: str = None, age: 
 
 def generate_and_save_otp(identifier: str, id_type: str = 'AUTO') -> str:
     """
-    Generates a 6-digit OTP code and persists to OTPVerification.
+    Generates a secure 6-digit OTP code and persists to OTPVerification.
     Returns the otp code.
     """
-    from django.conf import settings
-    if getattr(settings, 'DEMO_MODE', False):
-        otp_code = '123456'
-    else:
-        otp_code = f"{random.randint(100000, 999999)}"
+    otp_code = f"{random.randint(100000, 999999)}"
 
     OTPVerification.objects.create(
         identifier=identifier.strip(),
@@ -249,17 +242,12 @@ def generate_and_save_otp(identifier: str, id_type: str = 'AUTO') -> str:
 
 def verify_otp_code(identifier: str, otp_code: str) -> bool:
     """
-    Verifies the OTP code against active records.
-    When DEMO_MODE=True, demo OTP '123456' is accepted for fast local testing.
+    Verifies the OTP code against active database records.
     """
     if not otp_code:
         return False
 
     code = otp_code.strip()
-    from django.conf import settings
-    if getattr(settings, 'DEMO_MODE', False) and code == '123456':
-        return True
-
     val = identifier.strip()
     digits = clean_digits(val)
 

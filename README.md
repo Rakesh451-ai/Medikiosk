@@ -37,7 +37,6 @@ MediKiosk/
 ├── frontend/                 # Vite + React 18 + Tailwind CSS
 │   ├── src/
 │   │   ├── pages/kiosk/      # /kiosk: IdentifyScreen, ConverseScreen, KioskView
-│   │   ├── pages/doctor/     # /doctor: DoctorDashboard, DoctorLogin
 │   │   ├── services/api.js   # Centralized API service layer
 │   │   └── styles/           # design-tokens.js (shared design system)
 ├── docs/                     # Specifications: architecture.md, api-contracts.md, data-model.md

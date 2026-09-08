@@ -96,7 +96,15 @@ class CurrentUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        user = request.user
+        if user.is_patient and not hasattr(user, 'patient_profile'):
+            PatientProfile.objects.create(
+                user=user,
+                name=user.get_full_name() or user.username,
+                phone=user.username if user.username.isdigit() else ''
+            )
+            user.refresh_from_db()
+        serializer = UserSerializer(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -311,7 +319,7 @@ class UnifiedLoginView(APIView):
                     details=f"Failed OTP code attempt: '{otp}'"
                 )
                 return Response({
-                    "error": "Invalid or expired OTP. Use demo OTP 123456."
+                    "error": "Invalid or expired verification OTP. Please check the code sent to your phone."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             user, profile, id_type, created = get_or_create_patient_by_identifier(
@@ -324,12 +332,10 @@ class UnifiedLoginView(APIView):
             user, profile, id_type = find_user_by_identifier(identifier)
             if not user:
                 return Response({
-                    "error": "No account found matching this identifier. Try OTP login to sign in or register instantly."
+                    "error": "No account found matching this identifier. Please check your credentials or register."
                 }, status=status.HTTP_404_NOT_FOUND)
 
-            from django.conf import settings
-            password_valid = user.check_password(password) or (getattr(settings, 'DEMO_MODE', False) and password == 'PatientPass123!')
-            if not password_valid:
+            if not user.check_password(password):
                 record_security_incident(
                     event_type=SecurityAuditLog.EventType.FAILED_LOGIN,
                     identifier=identifier,
@@ -337,11 +343,8 @@ class UnifiedLoginView(APIView):
                     risk_level=SecurityAuditLog.RiskLevel.MEDIUM,
                     details="Invalid password entered."
                 )
-                err_msg = "Invalid password."
-                if getattr(settings, 'DEMO_MODE', False):
-                    err_msg += " (Demo mode active: PatientPass123!)"
                 return Response({
-                    "error": err_msg
+                    "error": "Invalid password. Please check your credentials and try again."
                 }, status=status.HTTP_401_UNAUTHORIZED)
 
             if profile and age is not None and age > 0:
@@ -405,27 +408,24 @@ def patient_detail_api(request):
     requested_id = request.query_params.get('patient_id') or (request.data.get('patient_id') if request.method == 'POST' else None)
 
     target_user = request.user
-    if requested_id and not is_patient_placeholder(requested_id):
-        req_id = requested_id.strip()
-        if request.user.is_patient:
+    if request.user.is_patient:
+        target_user = request.user
+        if requested_id and not is_patient_placeholder(requested_id):
+            req_id = str(requested_id).strip()
             profile = getattr(request.user, 'patient_profile', None)
-            allowed_ids = {request.user.username}
+            allowed_ids = {request.user.username, str(request.user.id)}
             if profile:
-                if profile.mock_abha_id:
-                    allowed_ids.add(profile.mock_abha_id)
-                if profile.mock_aadhaar_id:
-                    allowed_ids.add(profile.mock_aadhaar_id)
-                if profile.phone:
-                    allowed_ids.add(profile.phone)
+                allowed_ids.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
             if req_id not in allowed_ids:
                 return Response(
                     {"error": "Forbidden: You cannot access another patient's health records."},
                     status=status.HTTP_403_FORBIDDEN
                 )
-        elif request.user.is_clinical_staff:
-            found_user, _, _ = find_user_by_identifier(req_id)
-            if found_user:
-                target_user = found_user
+    elif request.user.is_clinical_staff and requested_id and not is_patient_placeholder(requested_id):
+        req_id = str(requested_id).strip()
+        found_user, _, _ = find_user_by_identifier(req_id)
+        if found_user:
+            target_user = found_user
 
     profile = getattr(target_user, 'patient_profile', None)
 
@@ -626,22 +626,22 @@ def medications_list_api(request):
     """
     patient_id = request.query_params.get('patient_id', '').strip()
     target_user = request.user
-
-    if patient_id and not is_patient_placeholder(patient_id):
-        if request.user.is_patient:
+    if request.user.is_patient:
+        target_user = request.user
+        if patient_id and not is_patient_placeholder(patient_id):
             profile = getattr(request.user, 'patient_profile', None)
-            allowed = {request.user.username}
+            allowed = {request.user.username, str(request.user.id)}
             if profile:
-                allowed.update([profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone])
+                allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
             if patient_id not in allowed:
                 return Response(
                     {"error": "Forbidden: You cannot access another patient's medications."},
                     status=status.HTTP_403_FORBIDDEN
                 )
-        elif request.user.is_clinical_staff:
-            found_user, _, _ = find_user_by_identifier(patient_id)
-            if found_user:
-                target_user = found_user
+    elif request.user.is_clinical_staff and patient_id and not is_patient_placeholder(patient_id):
+        found_user, _, _ = find_user_by_identifier(patient_id)
+        if found_user:
+            target_user = found_user
 
     meds_qs = target_user.medications.all()
     serializer = PatientMedicationSerializer(meds_qs, many=True)
@@ -727,22 +727,22 @@ def vitals_api(request):
     """
     patient_id = (request.query_params.get('patient_id') or (request.data.get('patient_id') if isinstance(request.data, dict) else '') or '').strip()
     target_user = request.user
-
-    if patient_id and not is_patient_placeholder(patient_id):
-        if request.user.is_patient:
+    if request.user.is_patient:
+        target_user = request.user
+        if patient_id and not is_patient_placeholder(patient_id):
             profile = getattr(request.user, 'patient_profile', None)
-            allowed = {request.user.username}
+            allowed = {request.user.username, str(request.user.id)}
             if profile:
-                allowed.update([profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone])
+                allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
             if patient_id not in allowed:
                 return Response(
                     {"error": "Forbidden: You cannot access another patient's vitals."},
                     status=status.HTTP_403_FORBIDDEN
                 )
-        elif request.user.is_clinical_staff:
-            found_user, _, _ = find_user_by_identifier(patient_id)
-            if found_user:
-                target_user = found_user
+    elif request.user.is_clinical_staff and patient_id and not is_patient_placeholder(patient_id):
+        found_user, _, _ = find_user_by_identifier(patient_id)
+        if found_user:
+            target_user = found_user
 
     if request.method == 'POST':
         data = request.data

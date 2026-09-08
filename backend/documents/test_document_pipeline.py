@@ -221,3 +221,51 @@ class DocumentPipelineAndPersistenceTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(res.data['allergy_warning'])
         self.assertIn('Penicillin', res.data['allergy_message'])
+
+    def test_delete_medical_record_by_owner_and_rejection_by_other_patient(self):
+        """
+        Tests:
+        1. Authenticated patient can delete their own medical record.
+        2. Another patient cannot delete or access it (403 Forbidden).
+        3. Associated PatientMedication is decoupled (source_document set to None) rather than lost.
+        4. Record is permanently removed from the database.
+        """
+        other_user = User.objects.create_user(
+            username='other_patient_delete_test',
+            email='other@health.in',
+            password='OtherPass123!',
+            role=User.Role.PATIENT
+        )
+        doc = MedicalDocument.objects.create(
+            patient=self.patient_user,
+            patient_identifier=self.patient_user.username,
+            title='Prescription for Deletion',
+            doc_type=MedicalDocument.DocType.PRESCRIPTION,
+            ocr_status=MedicalDocument.OCRStatus.COMPLETED
+        )
+        med = PatientMedication.objects.create(
+            patient=self.patient_user,
+            name='Amoxicillin',
+            dosage='500mg',
+            source_document=doc
+        )
+
+        delete_url = reverse('document-detail', kwargs={'doc_id': doc.doc_id})
+
+        # Try deleting with other_user -> must be 403 Forbidden
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        bad_res = other_client.delete(delete_url)
+        self.assertEqual(bad_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(MedicalDocument.objects.filter(id=doc.id).exists())
+
+        # Now delete with owner patient_user -> must be 200 OK
+        ok_res = self.client.delete(delete_url)
+        self.assertEqual(ok_res.status_code, status.HTTP_200_OK)
+        self.assertFalse(MedicalDocument.objects.filter(id=doc.id).exists())
+
+        # Verify medication still exists, decoupled
+        med.refresh_from_db()
+        self.assertIsNone(med.source_document)
+        self.assertEqual(med.name, 'Amoxicillin')
+

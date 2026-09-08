@@ -5,7 +5,7 @@ import {
   AlertTriangle, AlertOctagon, Ban, Lock, Unlock, Search, Filter,
   RefreshCw, Trash2, Edit3, Eye, Plus, ArrowLeft, CheckCircle2,
   Activity, Zap, Terminal, Smartphone, Mail, Globe, Check, X,
-  Clock, Stethoscope, ChevronRight, Sparkles, ExternalLink
+  Clock, ChevronRight, Sparkles, ExternalLink
 } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -465,14 +465,6 @@ export default function AdminPanel() {
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
             </button>
-
-            <Link
-              to="/doctor"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition"
-            >
-              <Stethoscope className="w-3.5 h-3.5 text-blue-400" />
-              <span>Doctor Portal</span>
-            </Link>
 
             <button
               onClick={handleAdminLogout}
