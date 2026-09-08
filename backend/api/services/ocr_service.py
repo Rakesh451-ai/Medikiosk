@@ -1,12 +1,14 @@
 """
 Pluggable OCR and Document Text Extraction Service
-Supports replaceable OCR providers (PDF text extraction, Tesseract, external OCR APIs).
+Supports PDF text extraction (via pypdf), Optical Character Recognition,
+and client-assisted optical transcripts.
 Does NOT fabricate or invent dummy text if OCR fails.
 """
 
 import os
 import logging
 from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ class PyPDFOCRService(BaseOCRService):
         try:
             from pypdf import PdfReader
             reader = PdfReader(file_path)
-            for page_idx, page in enumerate(reader.pages):
+            for page in reader.pages:
                 page_text = page.extract_text()
                 if page_text and page_text.strip():
                     extracted_pages.append(page_text.strip())
@@ -61,14 +63,18 @@ class TesseractOCRService(BaseOCRService):
         try:
             import pytesseract
             from PIL import Image
+
             with Image.open(file_path) as img:
-                # Convert RGBA / P mode images if needed
+                # Verify image integrity
+                img.verify()
+
+            with Image.open(file_path) as img:
                 if img.mode not in ('L', 'RGB'):
                     img = img.convert('RGB')
                 text = pytesseract.image_to_string(img)
                 return text.strip() if text else ""
         except Exception as e:
-            logger.info(f"Tesseract OCR unavailable or encountered non-fatal error on {file_path}: {e}")
+            logger.info(f"Tesseract OCR non-fatal notice on {file_path}: {e}")
             return ""
 
 
@@ -76,28 +82,40 @@ class OCRService(BaseOCRService):
     """
     Main composite OCR service dispatcher.
     Inspects file extension and dispatches to the appropriate OCR provider.
+    Supports client-assisted OCR transcripts (e.g. from Tesseract.js).
     """
 
     def __init__(self):
         self.pdf_service = PyPDFOCRService()
         self.image_service = TesseractOCRService()
 
-    def extract_text(self, file_path: str) -> str:
+    def validate_image_integrity(self, file_path: str) -> bool:
+        """Validates image can be opened and is not corrupted."""
+        try:
+            from PIL import Image
+            with Image.open(file_path) as img:
+                img.verify()
+            return True
+        except Exception:
+            return False
+
+    def extract_text(self, file_path: str, client_text: Optional[str] = None) -> str:
+        if client_text and len(client_text.strip()) >= 5:
+            return client_text.strip()
+
         if not file_path or not os.path.exists(file_path):
             return ""
 
         lower_path = file_path.lower()
         if lower_path.endswith('.pdf'):
             text = self.pdf_service.extract_text(file_path)
-            if text:
-                return text
-            # Fallback if PDF has embedded scanned images and pdf2image available
-            return ""
+            if text and len(text.strip()) >= 5:
+                return text.strip()
 
-        # Default image extensions (.png, .jpg, .jpeg, .webp, etc.)
+        # Image extraction via Tesseract
         return self.image_service.extract_text(file_path)
 
-    def process(self, file_path: str) -> dict:
+    def process(self, file_path: str, client_text: Optional[str] = None) -> dict:
         """
         Executes OCR pipeline on the file and returns structured extraction metadata.
         """
@@ -112,7 +130,17 @@ class OCRService(BaseOCRService):
         is_pdf = file_path.lower().endswith('.pdf')
         page_count = self.pdf_service.get_page_count(file_path) if is_pdf else 1
 
-        extracted_text = self.extract_text(file_path)
+        # Check image corruption if image
+        if not is_pdf:
+            if not self.validate_image_integrity(file_path):
+                return {
+                    "success": False,
+                    "raw_text": "",
+                    "page_count": 1,
+                    "error": "The uploaded image appears corrupted or invalid. Please upload a clear JPG or PNG image."
+                }
+
+        extracted_text = self.extract_text(file_path, client_text=client_text)
 
         if not extracted_text or len(extracted_text.strip()) < 5:
             return {
@@ -125,6 +153,7 @@ class OCRService(BaseOCRService):
         return {
             "success": True,
             "raw_text": extracted_text.strip(),
+            "text": extracted_text.strip(),
             "page_count": page_count,
             "error": None
         }

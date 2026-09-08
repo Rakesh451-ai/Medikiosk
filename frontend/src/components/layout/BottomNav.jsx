@@ -1,11 +1,11 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Activity, Camera, Bot, FileText } from 'lucide-react';
+import { Home, ClipboardList, Camera, Bot, FileText } from 'lucide-react';
 
 export function BottomNav({ documentsCount = 0 }) {
   const tabs = [
     { to: '/', label: 'Home', icon: Home, exact: true },
-    { to: '/summary', label: 'Vitals', icon: Activity },
+    { to: '/summary', label: 'Health Records', icon: ClipboardList },
     { to: '/scanner', label: 'Scan', icon: Camera, isCenter: true },
     { to: '/agent', label: 'Assistant', icon: Bot },
     { to: '/records', label: 'Records', icon: FileText, badge: documentsCount },

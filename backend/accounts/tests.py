@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from accounts.models import User, PatientProfile, DoctorProfile, TriageStaffProfile
+from accounts.models import User, PatientProfile, DoctorProfile, TriageStaffProfile, VitalReading
 
 class AccountsAuthAndRolePermissionsTest(TestCase):
     def setUp(self):
@@ -307,6 +307,59 @@ class AccountsAuthAndRolePermissionsTest(TestCase):
         self.assertEqual(res_admin.status_code, status.HTTP_200_OK)
         self.assertIn('tokens', res_admin.data)
         self.assertEqual(res_admin.data['user']['role'], User.Role.ADMIN)
+
+    def test_vitals_recording_preservation_and_history(self):
+        # 1. Record BP, Heart Rate, SpO2, and Temperature
+        self.client.force_authenticate(user=self.patient_user)
+        res1 = self.client.post(
+            reverse('api-patient-vitals'),
+            {
+                'heart_rate': 72,
+                'bp_systolic': 120,
+                'bp_diastolic': 80,
+                'spo2': 98,
+                'temperature': 98.6,
+            },
+            format='json'
+        )
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertIn('latest_vitals', res1.data)
+        self.assertEqual(res1.data['latest_vitals']['heart_rate'], 72)
+        self.assertEqual(res1.data['latest_vitals']['bp_systolic'], 120)
+        self.assertEqual(res1.data['latest_vitals']['bp_diastolic'], 80)
+        self.assertEqual(res1.data['latest_vitals']['spo2'], 98)
+
+        # 2. Record only Glucose - ensure previous non-null vitals are preserved
+        res2 = self.client.post(
+            reverse('api-patient-vitals'),
+            {
+                'glucose': 95,
+            },
+            format='json'
+        )
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        latest = res2.data['latest_vitals']
+        self.assertEqual(latest['glucose'], 95)
+        self.assertEqual(latest['heart_rate'], 72)
+        self.assertEqual(latest['bp_systolic'], 120)
+        self.assertEqual(latest['spo2'], 98)
+
+        # 3. Query vitals with history=true
+        res3 = self.client.get(reverse('api-patient-vitals') + '?history=true')
+        self.assertEqual(res3.status_code, status.HTTP_200_OK)
+        self.assertIn('history', res3.data)
+        self.assertIn('readings', res3.data)
+        self.assertIn('latest', res3.data)
+        self.assertIn('latest_vitals', res3.data)
+        self.assertEqual(len(res3.data['history']), 2)
+        self.assertEqual(res3.data['latest']['glucose'], 95)
+
+        # 4. Patient detail API returns merged latest vitals
+        res4 = self.client.get(reverse('api-patient-detail'))
+        self.assertEqual(res4.status_code, status.HTTP_200_OK)
+        self.assertIn('latest_vitals', res4.data)
+        self.assertEqual(res4.data['latest_vitals']['glucose'], 95)
+        self.assertEqual(res4.data['latest_vitals']['heart_rate'], 72)
 
 
 

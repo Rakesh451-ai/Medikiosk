@@ -27,6 +27,29 @@ DEFAULT_QUICK_REPLIES = [
     "🏥 How do I see a doctor or nurse?"
 ]
 
+LANGUAGE_NAMES = {
+    'en': 'English',
+    'en-IN': 'Indian English',
+    'hi': 'Hindi (हिन्दी)',
+    'hi-IN': 'Hindi (हिन्दी)',
+    'bn': 'Bengali (বাংলা)',
+    'bn-IN': 'Bengali (বাংলা)',
+    'mr': 'Marathi (मराठी)',
+    'mr-IN': 'Marathi (मराठी)',
+    'gu': 'Gujarati (ગુજરાતી)',
+    'gu-IN': 'Gujarati (ગુજરાતી)',
+    'ta': 'Tamil (தமிழ்)',
+    'ta-IN': 'Tamil (தமிழ்)',
+    'te': 'Telugu (తెలుగు)',
+    'te-IN': 'Telugu (తెలుగు)',
+    'kn': 'Kannada (ಕನ್ನಡ)',
+    'kn-IN': 'Kannada (ಕನ್ನಡ)',
+    'pa': 'Punjabi (ਪੰਜਾਬੀ)',
+    'pa-IN': 'Punjabi (ਪੰਜਾਬੀ)',
+    'ml': 'Malayalam (മലയാളം)',
+    'ml-IN': 'Malayalam (മലയാളം)',
+}
+
 
 class AIService:
     """Orchestrates AI chat completions with patient context and safety guardrails."""
@@ -41,17 +64,11 @@ class AIService:
         user_query: str,
         patient_context_str: str,
         safety_assessment: Dict[str, Any],
-        recent_messages: Optional[List[Dict[str, str]]] = None
+        recent_messages: Optional[List[Dict[str, str]]] = None,
+        language: str = 'en'
     ) -> Dict[str, Any]:
         """
-        Generates an assistant response for the patient query.
-        Returns:
-            {
-                "text": str,
-                "urgency": "normal" | "warning" | "critical",
-                "quick_replies": List[str],
-                "is_emergency": bool
-            }
+        Generates an assistant response for the patient query in the requested language.
         """
         # 1. Deterministic Emergency Red-Flag Bypass
         if safety_assessment.get('is_emergency'):
@@ -67,7 +84,7 @@ class AIService:
             }
 
         # 2. Build System Prompt with EHR Context & Safety Notes
-        system_prompt = self._build_system_prompt(patient_context_str, safety_assessment)
+        system_prompt = self._build_system_prompt(patient_context_str, safety_assessment, language=language)
 
         # 3. Build Conversation Messages Payload
         messages = [{"role": "system", "content": system_prompt}]
@@ -91,8 +108,11 @@ class AIService:
         if ai_reply:
             cleaned_text, quick_replies = self._extract_quick_replies(ai_reply, user_query)
             # Ensure safety disclaimer is present if not emergency
-            if "disclaimer" not in cleaned_text.lower() and "consult" not in cleaned_text.lower():
-                cleaned_text += "\n\n⚠️ Disclaimer: MediKiosk provides health guidance for informational purposes and does not replace consultation with a licensed clinician."
+            if "disclaimer" not in cleaned_text.lower() and "consult" not in cleaned_text.lower() and "अस्वीकरण" not in cleaned_text:
+                if language.startswith('hi'):
+                    cleaned_text += "\n\n⚠️ अस्वीकरण: MediKiosk केवल सामान्य स्वास्थ्य जानकारी प्रदान करता है और योग्य चिकित्सक के परामर्श का विकल्प नहीं है।"
+                else:
+                    cleaned_text += "\n\n⚠️ Disclaimer: MediKiosk provides health guidance for informational purposes and does not replace consultation with a licensed clinician."
 
             return {
                 "text": cleaned_text,
@@ -102,9 +122,11 @@ class AIService:
             }
 
         # 6. Fallback Deterministic Clinical Guidance (if API unreachable or unconfigured)
-        return self._build_clinical_fallback(user_query, patient_context_str, safety_assessment)
+        return self._build_clinical_fallback(user_query, patient_context_str, safety_assessment, language=language)
 
-    def _build_system_prompt(self, patient_context_str: str, safety_assessment: Dict[str, Any]) -> str:
+    def _build_system_prompt(self, patient_context_str: str, safety_assessment: Dict[str, Any], language: str = 'en') -> str:
+        lang_name = LANGUAGE_NAMES.get(language, LANGUAGE_NAMES.get(language.split('-')[0], 'English'))
+
         prompt_parts = [
             "You are the MediKiosk AI Health Assistant, a friendly, empathetic, and medically accurate virtual assistant located on a hospital touch-screen kiosk.",
             "",
@@ -117,6 +139,13 @@ class AIService:
             "6. If an allergy warning applies, highlight it clearly with bold caution.",
             "7. Suggest 3 short relevant follow-up questions at the very end formatted as: 'SUGGESTED_QUESTIONS: [Question 1 | Question 2 | Question 3]'.",
             "8. Always maintain an encouraging, calm, professional tone.",
+            "",
+            "MULTILINGUAL & LOCALIZATION GUIDELINES:",
+            f"• Target Language: Respond primarily in {lang_name} ({language}).",
+            "• If the patient speaks or asks in Hindi, or mixes Hindi and English (Hinglish, e.g. 'meri BP report kaisi hai?', 'what medicines am I le raha hoon?'), understand their query naturally and respond in clean, empathetic Hindi or Hinglish as appropriate.",
+            "• If the patient selects or types in an Indian regional language (Bengali, Marathi, Gujarati, Tamil, Telugu, Kannada, Punjabi, Malayalam), formulate your entire answer in that language.",
+            "• DO NOT mistranslate medicine names, dosages, or measurements. Keep drug names (e.g. Paracetamol 650mg, Metformin), test names, and vital numbers (e.g. 120/80 mmHg, 72 bpm, 98%) medically accurate and standard.",
+            "• Explain complex medical terms in simple, easily understandable words for the patient.",
             "",
             patient_context_str
         ]
@@ -230,59 +259,107 @@ class AIService:
         self,
         query: str,
         patient_context_str: str,
-        safety_assessment: Dict[str, Any]
+        safety_assessment: Dict[str, Any],
+        language: str = 'en'
     ) -> Dict[str, Any]:
         """Provides high-quality, grounded clinical advice when external AI is temporarily offline."""
         q_lower = query.lower()
         urgency = safety_assessment.get('urgency', 'normal')
+        is_hindi = language.startswith('hi') or any('\u0900' <= char <= '\u097F' for char in query)
 
         # Check allergy warning first
         if urgency == 'warning' and safety_assessment.get('warning_message'):
-            text = (
-                f"{safety_assessment.get('warning_message')}\n\n"
-                "Please do NOT take this medication without explicit clearance from your prescribing doctor or pharmacist.\n\n"
-                "⚠️ Medical Disclaimer: MediKiosk provides health information and does not replace consultation with a licensed clinician."
-            )
-            return {
-                "text": text,
-                "urgency": "warning",
-                "quick_replies": [
+            if is_hindi:
+                text = (
+                    f"⚠️ एलर्जी चेतावनी: {safety_assessment.get('warning_message')}\n\n"
+                    "कृपया अपने डॉक्टर या फार्मासिस्ट की अनुमति के बिना यह दवा बिल्कुल न लें।\n\n"
+                    "⚠️ अस्वीकरण: MediKiosk केवल जानकारी प्रदान करता है और डॉक्टर के परामर्श का विकल्प नहीं है।"
+                )
+                quick_replies = [
+                    "💊 मेरी दवाइयां देखें",
+                    "🩺 मेरे स्वास्थ्य आंकड़े (Vitals)",
+                    "🏥 डॉक्टर से संपर्क करें"
+                ]
+            else:
+                text = (
+                    f"{safety_assessment.get('warning_message')}\n\n"
+                    "Please do NOT take this medication without explicit clearance from your prescribing doctor or pharmacist.\n\n"
+                    "⚠️ Medical Disclaimer: MediKiosk provides health information and does not replace consultation with a licensed clinician."
+                )
+                quick_replies = [
                     "💊 Review my active prescriptions",
                     "🩺 Check my vital readings",
                     "🏥 Alert clinic nurse"
-                ],
+                ]
+            return {
+                "text": text,
+                "urgency": "warning",
+                "quick_replies": quick_replies,
                 "is_emergency": False
             }
 
         # Vitals inquiry
-        if any(w in q_lower for w in ['vital', 'bp', 'heart', 'pulse', 'spo2', 'sugar', 'blood pressure']):
-            text = (
-                "Here is the status of your vital readings recorded in your health chart:\n\n"
-                "• Blood pressure targets are typically below 120/80 mmHg.\n"
-                "• A resting heart rate between 60 and 100 bpm is standard for most adults.\n"
-                "• Oxygen saturation (SpO2) at 95% or higher is normal.\n\n"
-                "Check the 'What the Assistant Knows' card on the left for your latest values on file. If you are experiencing lightheadedness or fatigue, please alert kiosk staff."
-            )
+        if any(w in q_lower for w in ['vital', 'bp', 'heart', 'pulse', 'spo2', 'sugar', 'blood pressure']) or any(w in query for w in ['बीपी', 'धड़कन', 'शुगर', 'तापमान']):
+            if is_hindi:
+                text = (
+                    "आपके स्वास्थ्य चार्ट में दर्ज मुख्य स्वास्थ्य आंकड़े (Vitals) इस प्रकार हैं:\n\n"
+                    "• सामान्य रक्तचाप (Blood Pressure) 120/80 mmHg के आसपास होना चाहिए।\n"
+                    "• सामान्य दिल की धड़कन (Heart Rate) 60 से 100 bpm के बीच सामान्य मानी जाती है।\n"
+                    "• ऑक्सीजन स्तर (SpO2) 95% या अधिक होना चाहिए।\n\n"
+                    "अपनी ताज़ा रिपोर्ट स्क्रीन पर बाईं ओर देख सकते हैं। यदि आपको चक्कर या कमजोरी महसूस हो तो तुरंत कियोस्क स्टाफ को सूचित करें।"
+                )
+                quick_replies = ["🩺 क्या मेरा बीपी ठीक है?", "💊 मेरी दवाएं", "🏥 डॉक्टर की सलाह"]
+            else:
+                text = (
+                    "Here is the status of your vital readings recorded in your health chart:\n\n"
+                    "• Blood pressure targets are typically below 120/80 mmHg.\n"
+                    "• A resting heart rate between 60 and 100 bpm is standard for most adults.\n"
+                    "• Oxygen saturation (SpO2) at 95% or higher is normal.\n\n"
+                    "Check the 'What the Assistant Knows' card on the left for your latest values on file. If you are experiencing lightheadedness or fatigue, please alert kiosk staff."
+                )
+                quick_replies = self._generate_contextual_replies(query)
         # Medication inquiry
-        elif any(w in q_lower for w in ['medic', 'pill', 'dose', 'drug', 'prescription', 'when should i take']):
-            text = (
-                "Regarding your prescriptions:\n\n"
-                "• Always follow the timing (morning/evening) and meal instructions indicated by your doctor.\n"
-                "• Take medicines with a full glass of water.\n"
-                "• You can view and mark your doses as taken on the 'Prescriptions' screen.\n\n"
-                "If you experience side effects or miss a dose, please contact your prescribing physician."
-            )
+        elif any(w in q_lower for w in ['medic', 'pill', 'dose', 'drug', 'prescription', 'when should i take']) or any(w in query for w in ['दवा', 'गोली', 'खुराक']):
+            if is_hindi:
+                text = (
+                    "आपकी निर्धारित दवाओं के संबंध में महत्वपूर्ण निर्देश:\n\n"
+                    "• कृपया डॉक्टर द्वारा बताए गए समय (सुबह / दोपहर / रात) और भोजन संबंधी निर्देशों का पालन करें।\n"
+                    "• गोलियां हमेशा एक पूरे गिलास पानी के साथ लें।\n"
+                    "• आप 'Prescriptions' मेन्यू में जाकर दवाओं को ले चुके होने का रिकॉर्ड मार्क कर सकते हैं।\n\n"
+                    "यदि किसी दवा से असहजता महसूस हो तो तुरंत अपने चिकित्सक से संपर्क करें।"
+                )
+                quick_replies = ["💊 दवा का समय बताएं", "⚠️ क्या कोई एलर्जी है?", "🩺 स्वास्थ्य सारांश"]
+            else:
+                text = (
+                    "Regarding your prescriptions:\n\n"
+                    "• Always follow the timing (morning/evening) and meal instructions indicated by your doctor.\n"
+                    "• Take medicines with a full glass of water.\n"
+                    "• You can view and mark your doses as taken on the 'Prescriptions' screen.\n\n"
+                    "If you experience side effects or miss a dose, please contact your prescribing physician."
+                )
+                quick_replies = self._generate_contextual_replies(query)
         else:
-            text = (
-                f"Thank you for your question regarding '{query}'. Your personal health record is actively loaded.\n\n"
-                "You can ask about your active prescriptions, recorded vitals, documented drug allergies, or instructions from your medical documents."
-            )
+            if is_hindi:
+                text = (
+                    f"आपके प्रश्न '{query}' के लिए धन्यवाद। आपका मेडिकल रिकॉर्ड सुरक्षित रूप से लोड है।\n\n"
+                    "आप अपनी दवाओं, वाइटल्स (बीपी/पल्स), एलर्जी या जांच रिपोर्ट के बारे में कोई भी प्रश्न पूछ सकते हैं।"
+                )
+                quick_replies = ["💊 मेरी दवाएं", "🩺 मेरे स्वास्थ्य आंकड़े", "⚠️ एलर्जी जांच"]
+            else:
+                text = (
+                    f"Thank you for your question regarding '{query}'. Your personal health record is actively loaded.\n\n"
+                    "You can ask about your active prescriptions, recorded vitals, documented drug allergies, or instructions from your medical documents."
+                )
+                quick_replies = self._generate_contextual_replies(query)
 
-        text += "\n\n⚠️ Disclaimer: MediKiosk provides health guidance for informational purposes and does not replace consultation with a licensed clinician."
+        if is_hindi:
+            text += "\n\n⚠️ अस्वीकरण: MediKiosk केवल सामान्य स्वास्थ्य जानकारी प्रदान करता है और चिकित्सक के परामर्श का विकल्प नहीं है।"
+        else:
+            text += "\n\n⚠️ Disclaimer: MediKiosk provides health guidance for informational purposes and does not replace consultation with a licensed clinician."
 
         return {
             "text": text,
             "urgency": urgency,
-            "quick_replies": self._generate_contextual_replies(query),
+            "quick_replies": quick_replies,
             "is_emergency": False
         }

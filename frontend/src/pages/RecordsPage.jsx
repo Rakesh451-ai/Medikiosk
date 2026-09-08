@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileText, ChevronRight, CheckCircle2, Search, Filter, Calendar, X, Sparkles, Plus, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -8,9 +8,18 @@ import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 
 export function RecordsPage({ documents = [] }) {
-  const [filter, setFilter] = useState('All');
+  const [searchParams] = useSearchParams();
+  const initialFilter = searchParams.get('type') || searchParams.get('filter') || 'All';
+  const [filter, setFilter] = useState(initialFilter);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDoc, setSelectedDoc] = useState(null);
+
+  useEffect(() => {
+    const q = searchParams.get('type') || searchParams.get('filter');
+    if (q) {
+      setFilter(q);
+    }
+  }, [searchParams]);
 
   const safeDocs = Array.isArray(documents) ? documents : [];
   const filteredDocs = safeDocs.filter((doc) => {

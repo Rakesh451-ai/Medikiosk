@@ -8,6 +8,7 @@ from .views import (
 
 urlpatterns = [
     # RESTful Endpoints
+    path('', PhysicianSummaryDetailView.as_view(), name='summary-current'),
     path('sessions/<str:session_id>/generate/', GenerateSessionSummaryView.as_view(), name='summary-generate-session'),
     path('<str:summary_id>/', PhysicianSummaryDetailView.as_view(), name='summary-detail'),
 

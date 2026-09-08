@@ -1,681 +1,962 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-  Heart, Activity, Thermometer, Droplet, Pill, FileText, CheckCircle2, 
-  AlertTriangle, Printer, Sparkles, Plus, Clock, ChevronRight, RefreshCw, X, ArrowRight,
-  TrendingUp, TrendingDown, Minus, Calendar, Loader2
+  FileText, Pill, Droplet, Activity, Sparkles, Plus, Clock, 
+  ChevronRight, RefreshCw, X, ArrowRight, Printer, AlertTriangle, 
+  AlertCircle, CheckCircle2, Search, Calendar, User, ShieldCheck, 
+  Download, Eye, ExternalLink, Filter, Layers, Stethoscope, Building2
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import confetti from 'canvas-confetti';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 
-export function SummaryPage({ patient, vitals, medications = [], documents = [], onDataUpdated }) {
+// Helper to categorize documents consistently
+export function getDocumentCategory(doc) {
+  const type = (doc?.doc_type || '').toLowerCase();
+  if (type.includes('prescript')) return 'Prescription';
+  if (type.includes('lab') || type.includes('blood') || type.includes('test') || type.includes('pathology')) return 'Lab Report';
+  if (type.includes('imag') || type.includes('radio') || type.includes('x-ray') || type.includes('scan') || type.includes('mri') || type.includes('ct')) return 'Radiology';
+  if (type.includes('discharge')) return 'Discharge Summary';
+  return 'Other';
+}
+
+export function SummaryPage({ 
+  patient, 
+  vitals, 
+  medications = [], 
+  documents: propDocs = [], 
+  summary: propSummary = null, 
+  onDataUpdated 
+}) {
+  const navigate = useNavigate();
+  const [docs, setDocs] = useState(Array.isArray(propDocs) ? propDocs : []);
+  const [summaryData, setSummaryData] = useState(propSummary || null);
+  const [localMeds, setLocalMeds] = useState(Array.isArray(medications) ? medications : []);
+  const [status, setStatus] = useState('loading'); // 'loading' | 'success' | 'empty' | 'error'
+  const [errorMessage, setErrorMessage] = useState('');
   const [selectedDoc, setSelectedDoc] = useState(null);
-  const [showVitalsModal, setShowVitalsModal] = useState(false);
-  const [vitalsHistory, setVitalsHistory] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [savingVitals, setSavingVitals] = useState(false);
-  const [vitalsError, setVitalsError] = useState('');
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [summaryLang, setSummaryLang] = useState('en');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Form state for recording new vitals reading
-  const [formBpSys, setFormBpSys] = useState('');
-  const [formBpDia, setFormBpDia] = useState('');
-  const [formHeartRate, setFormHeartRate] = useState('');
-  const [formSpo2, setFormSpo2] = useState('');
-  const [formTemp, setFormTemp] = useState('');
-  const [formGlucose, setFormGlucose] = useState('');
-
-  // Fetch real vitals history for trend analysis
-  const loadVitalsHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const pid = patient?.patient_id;
-      const history = await api.getVitalsHistory(pid || '');
-      if (Array.isArray(history)) {
-        setVitalsHistory(history);
-      } else if (history && Array.isArray(history.readings)) {
-        setVitalsHistory(history.readings);
-      }
-    } catch (e) {
-      console.warn('Failed to load vitals history:', e);
-    } finally {
-      setLoadingHistory(false);
+  // Sync prop changes
+  useEffect(() => {
+    if (Array.isArray(propDocs) && propDocs.length > 0) {
+      setDocs(propDocs);
     }
-  };
+  }, [propDocs]);
 
   useEffect(() => {
-    loadVitalsHistory();
-  }, [patient?.patient_id]);
+    if (propSummary) {
+      setSummaryData(propSummary);
+    }
+  }, [propSummary]);
 
-  const handleToggleMed = async (medId) => {
+  useEffect(() => {
+    if (Array.isArray(medications)) {
+      setLocalMeds(medications);
+    }
+  }, [medications]);
+
+  // Load documents and summary data
+  const loadRecordsSummary = useCallback(async (isInitial = true) => {
+    if (isInitial) {
+      setStatus('loading');
+    } else {
+      setIsRefreshing(true);
+    }
+    setErrorMessage('');
+
     try {
-      await api.markMedicationTaken(medId);
-      if (onDataUpdated) onDataUpdated();
-    } catch (e) {
-      try {
-        await api.toggleMedication(medId);
-        if (onDataUpdated) onDataUpdated();
-      } catch (err) {
-        console.error('Failed to update medication:', err);
+      const pid = patient?.patient_id || '';
+      const [docsRes, summaryRes, medsRes] = await Promise.allSettled([
+        api.getDocuments(pid),
+        api.getPatientSummary(pid),
+        api.getMedications(pid)
+      ]);
+
+      let loadedDocs = [];
+      if (docsRes.status === 'fulfilled' && Array.isArray(docsRes.value)) {
+        loadedDocs = docsRes.value;
+        setDocs(loadedDocs);
+      } else if (propDocs && propDocs.length > 0) {
+        loadedDocs = propDocs;
+        setDocs(loadedDocs);
       }
-    }
-  };
 
-  const handleSaveVitals = async (e) => {
-    if (e) e.preventDefault();
-    setVitalsError('');
-
-    const payload = {};
-    if (patient?.patient_id) payload.patient_id = patient.patient_id;
-
-    if (formHeartRate) {
-      const hr = parseInt(formHeartRate, 10);
-      if (isNaN(hr) || hr < 30 || hr > 240) {
-        setVitalsError('Please enter a realistic pulse (30-240 bpm).');
-        return;
+      if (summaryRes.status === 'fulfilled' && summaryRes.value) {
+        setSummaryData(summaryRes.value);
       }
-      payload.heart_rate = hr;
-    }
 
-    if (formBpSys || formBpDia) {
-      const sys = parseInt(formBpSys, 10);
-      const dia = parseInt(formBpDia, 10);
-      if (isNaN(sys) || isNaN(dia) || sys < 50 || sys > 260 || dia < 30 || dia > 160) {
-        setVitalsError('Please enter valid systolic and diastolic blood pressure values.');
-        return;
+      if (medsRes.status === 'fulfilled' && Array.isArray(medsRes.value)) {
+        setLocalMeds(medsRes.value);
       }
-      payload.bp_systolic = sys;
-      payload.bp_diastolic = dia;
-    }
 
-    if (formSpo2) {
-      const sp = parseInt(formSpo2, 10);
-      if (isNaN(sp) || sp < 50 || sp > 100) {
-        setVitalsError('Oxygen saturation (SpO2) must be between 50% and 100%.');
-        return;
+      if (loadedDocs.length === 0 && (!propDocs || propDocs.length === 0)) {
+        setStatus('empty');
+      } else {
+        setStatus('success');
       }
-      payload.spo2 = sp;
-    }
-
-    if (formTemp) {
-      const t = parseFloat(formTemp);
-      if (isNaN(t) || t < 90 || t > 110) {
-        setVitalsError('Body temperature must be between 90°F and 110°F.');
-        return;
-      }
-      payload.temperature = t;
-    }
-
-    if (formGlucose) {
-      const g = parseInt(formGlucose, 10);
-      if (isNaN(g) || g < 20 || g > 600) {
-        setVitalsError('Blood glucose must be between 20 and 600 mg/dL.');
-        return;
-      }
-      payload.glucose = g;
-    }
-
-    if (Object.keys(payload).length <= (payload.patient_id ? 1 : 0)) {
-      setVitalsError('Please fill in at least one vital sign reading.');
-      return;
-    }
-
-    setSavingVitals(true);
-    try {
-      await api.recordVitals(payload);
-      setShowVitalsModal(false);
-      setFormBpSys('');
-      setFormBpDia('');
-      setFormHeartRate('');
-      setFormSpo2('');
-      setFormTemp('');
-      setFormGlucose('');
-      if (onDataUpdated) onDataUpdated();
-      loadVitalsHistory();
-      confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
     } catch (err) {
-      setVitalsError(err.message || 'Failed to record vitals.');
+      console.error('Failed to load medical records overview:', err);
+      if (docs.length > 0 || (Array.isArray(propDocs) && propDocs.length > 0)) {
+        setStatus('success');
+      } else {
+        setErrorMessage(err.message || 'Unable to load medical records summary. Please verify your connection.');
+        setStatus('error');
+      }
     } finally {
-      setSavingVitals(false);
+      setIsRefreshing(false);
+    }
+  }, [patient?.patient_id, docs.length, propDocs]);
+
+  // Initial load
+  useEffect(() => {
+    loadRecordsSummary(true);
+  }, [loadRecordsSummary]);
+
+  // Handle manual refresh
+  const handleRefresh = async () => {
+    await loadRecordsSummary(false);
+    if (typeof onDataUpdated === 'function') {
+      onDataUpdated();
     }
   };
 
+  // Dynamic statistics
+  const stats = useMemo(() => {
+    const total = docs.length;
+    let prescriptions = 0;
+    let labReports = 0;
+    let radiology = 0;
+    let others = 0;
+
+    docs.forEach((d) => {
+      const cat = getDocumentCategory(d);
+      if (cat === 'Prescription') prescriptions += 1;
+      else if (cat === 'Lab Report') labReports += 1;
+      else if (cat === 'Radiology') radiology += 1;
+      else others += 1;
+    });
+
+    return {
+      total,
+      prescriptions,
+      labReports,
+      radiology,
+      others
+    };
+  }, [docs]);
+
+  // Sort documents by date descending
+  const sortedDocs = useMemo(() => {
+    return [...docs].sort((a, b) => {
+      const dateA = new Date(a.date || a.uploaded_at || 0);
+      const dateB = new Date(b.date || b.uploaded_at || 0);
+      return dateB - dateA;
+    });
+  }, [docs]);
+
+  const latestDoc = sortedDocs.length > 0 ? sortedDocs[0] : null;
+
+  // Filtered recent documents
+  const filteredRecentDocs = useMemo(() => {
+    let list = sortedDocs;
+    if (activeFilter !== 'All') {
+      list = list.filter((d) => {
+        const cat = getDocumentCategory(d);
+        if (activeFilter === 'Prescriptions') return cat === 'Prescription';
+        if (activeFilter === 'Lab Reports') return cat === 'Lab Report';
+        if (activeFilter === 'Radiology') return cat === 'Radiology';
+        if (activeFilter === 'Other') return cat !== 'Prescription' && cat !== 'Lab Report' && cat !== 'Radiology';
+        return true;
+      });
+    }
+    return list.slice(0, 6);
+  }, [sortedDocs, activeFilter]);
+
+  // Extracted active medications
+  const activeMedications = useMemo(() => {
+    if (localMeds.length > 0) return localMeds;
+    const docMeds = [];
+    docs.forEach(d => {
+      if (Array.isArray(d.medications)) {
+        d.medications.forEach(m => {
+          if (m && (typeof m === 'string' || m.name)) {
+            docMeds.push(typeof m === 'string' ? { name: m, frequency: 'As prescribed', active: true } : m);
+          }
+        });
+      }
+    });
+    return docMeds.slice(0, 6);
+  }, [localMeds, docs]);
+
+  // Clinical summary text
+  const narrativeSummary = useMemo(() => {
+    if (!summaryData) {
+      if (latestDoc) {
+        return `Latest clinical consultation on ${latestDoc.date || 'record'} with ${latestDoc.doctor || 'attending physician'} at ${latestDoc.facility || 'medical center'}. Documented diagnosis: ${latestDoc.diagnosis || 'Clinical evaluation complete.'}`;
+      }
+      return 'No clinical narrative summary available yet. Upload your first medical document to generate synthesized clinical insights.';
+    }
+
+    if (summaryLang === 'hi' && summaryData.bilingual_summary?.hi) {
+      return summaryData.bilingual_summary.hi;
+    }
+    if (summaryData.bilingual_summary?.en) {
+      return summaryData.bilingual_summary.en;
+    }
+
+    const parts = [];
+    if (summaryData.chief_complaint) parts.push(`Chief Complaint: ${summaryData.chief_complaint}`);
+    if (summaryData.hpi) parts.push(summaryData.hpi);
+    if (summaryData.provisional_diagnosis) parts.push(`Provisional Diagnosis: ${summaryData.provisional_diagnosis}`);
+    return parts.join('. ') || 'Clinical records verified and archived in electronic health repository.';
+  }, [summaryData, summaryLang, latestDoc]);
+
+  // Print summary handler
   const handlePrint = () => {
-    confetti({ particleCount: 70, spread: 80, origin: { y: 0.7 } });
-    setTimeout(() => window.print(), 350);
+    window.print();
   };
-
-  // Helper to parse BP display
-  const getBpDisplay = () => {
-    if (vitals?.bp_systolic && vitals?.bp_diastolic) {
-      return `${vitals.bp_systolic}/${vitals.bp_diastolic}`;
-    }
-    if (vitals?.blood_pressure) {
-      return vitals.blood_pressure;
-    }
-    return null;
-  };
-
-  const hasAnyVitals = Boolean(
-    vitals && (vitals.heart_rate || vitals.bp_systolic || vitals.blood_pressure || vitals.spo2 || vitals.temperature)
-  );
 
   return (
     <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center select-none font-sans">
       <div className="w-full max-w-6xl space-y-6">
-        
-        {/* Top Header Banner */}
-        <div className="bg-[#00bcd4] rounded-3xl p-4 sm:p-6 shadow-md flex flex-wrap items-center justify-between gap-4 text-white">
-          <div className="flex items-center gap-3">
-            <div className="py-2 px-6 rounded-full bg-[#297006] shadow-sm flex items-center justify-center">
-              <span className="text-xl sm:text-2xl font-black text-white tracking-wide">
-                My Health Summary
-              </span>
+
+        {/* Top Header & Action Controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00bcd4] text-white text-xs font-bold shadow-xs mb-2">
+              <FileText className="w-3.5 h-3.5" />
+              <span>Medical Records Overview</span>
             </div>
-            <div className="hidden sm:block">
-              <p className="text-xs font-extrabold text-white">Your Live Medical & Vitals Chart</p>
-              <p className="text-[11px] text-cyan-100">✓ Real Electronic Health Record</p>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#052e0a] tracking-tight">
+              Health Records & Reports Summary
+            </h1>
+            <p className="text-xs sm:text-sm text-gray-700 mt-1">
+              Concise clinical overview, report counts, and synthesized insights from your verified papers.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
               onClick={handlePrint}
-              variant="accent"
+              variant="outline"
               size="sm"
               icon={Printer}
-              className="text-gray-950 font-black"
+              className="bg-white/90 hover:bg-white text-gray-700 border-gray-300 font-bold shadow-xs"
             >
-              Print My Summary
+              Print Summary
             </Button>
             <Button
-              to="/agent"
+              onClick={handleRefresh}
+              variant="outline"
+              size="sm"
+              icon={RefreshCw}
+              className={`bg-white/90 hover:bg-white text-gray-700 border-gray-300 font-bold shadow-xs ${isRefreshing ? 'opacity-70' : ''}`}
+            >
+              {isRefreshing ? 'Updating...' : 'Refresh'}
+            </Button>
+            <Button
+              to="/scanner"
               variant="primary"
               size="sm"
-              icon={Sparkles}
+              icon={Plus}
+              className="bg-[#297006] hover:bg-[#1f5604] text-white shadow-xs font-bold"
             >
-              Ask Assistant
+              Scan New Record
+            </Button>
+            <Button
+              to="/records"
+              variant="secondary"
+              size="sm"
+              icon={ArrowRight}
+              className="bg-[#00bcd4] hover:bg-[#00acc1] text-white shadow-xs font-bold"
+            >
+              View All Records
             </Button>
           </div>
         </div>
 
-        {/* Patient Profile Card */}
-        <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80">
-          <div className="flex flex-wrap items-center justify-between pb-4 border-b border-gray-100 gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 rounded-2xl bg-[#cbf5d6] text-[#297006] font-black text-2xl flex items-center justify-center shadow-inner">
-                {patient?.name ? patient.name[0] : 'P'}
+        {/* Patient Profile Ribbon */}
+        {patient && (
+          <Card className="p-4 sm:p-5 bg-white/90 backdrop-blur-sm border-2 border-emerald-300 shadow-sm rounded-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-[#00bcd4] text-white flex items-center justify-center font-black text-lg shadow-sm">
+                  {(patient.name || 'P')[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base sm:text-lg font-black text-[#052e0a]">
+                      {patient.name || 'Verified Patient'}
+                    </h2>
+                    <Badge variant="success" className="text-[10px] uppercase font-black tracking-wide bg-emerald-100 text-[#297006]">
+                      ✓ EHR Active
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 mt-1 font-medium">
+                    {patient.age && <span>{patient.age} Yrs</span>}
+                    {patient.gender && <span>• {patient.gender}</span>}
+                    {patient.blood_group && <span>• Blood: <strong className="text-rose-600">{patient.blood_group}</strong></span>}
+                    {patient.patient_id && <span>• ID: <code className="font-mono text-gray-700">{patient.patient_id}</code></span>}
+                  </div>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-extrabold text-[#052e0a]">
-                  {patient?.name || 'Patient'}
-                </h2>
-                <p className="text-xs text-gray-600 font-medium">
-                  ID: <strong className="text-gray-900">{patient?.patient_id || 'EHR Profile'}</strong>
-                  {(patient?.gender || patient?.age) ? ` • ${patient.gender ? patient.gender + ', ' : ''}${patient.age ? patient.age + ' years old' : ''}` : ''}
-                </p>
-                <p className="text-[11px] text-gray-500">
-                  Doctor: <strong className="text-gray-800">{patient?.primary_doctor || (patient?.has_scanned_documents ? 'Not specified' : 'Scan document to extract')}</strong>
-                  {patient?.hospital_name ? ` (${patient.hospital_name})` : ''}
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <Badge variant="success" className="px-3.5 py-1 text-sm bg-[#297006] text-white">
-                  Blood Group: {patient?.blood_group || 'Unrecorded'}
-                </Badge>
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Emergency: {patient?.emergency_contact || patient?.phone || 'Not provided'}
-                </p>
+              <div className="flex flex-wrap sm:flex-col sm:items-end gap-2 text-xs text-gray-600 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100">
+                {patient.primary_doctor && (
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Stethoscope className="w-3.5 h-3.5 text-[#297006]" />
+                    <span>Primary: <strong>{patient.primary_doctor}</strong></span>
+                  </span>
+                )}
+                {patient.hospital_name && (
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Building2 className="w-3.5 h-3.5 text-[#00bcd4]" />
+                    <span>Facility: <strong>{patient.hospital_name}</strong></span>
+                  </span>
+                )}
               </div>
             </div>
+          </Card>
+        )}
+
+        {/* LOADING SKELETON */}
+        {status === 'loading' && (
+          <div className="space-y-6 animate-pulse">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-24 bg-white/70 rounded-2xl border border-emerald-200/60 p-4"></div>
+              ))}
+            </div>
+            <div className="h-48 bg-white/70 rounded-2xl border border-emerald-200/60 p-6"></div>
+            <div className="h-64 bg-white/70 rounded-2xl border border-emerald-200/60 p-6"></div>
           </div>
+        )}
 
-          {/* Known Allergies Alert Banner & Measurement trigger */}
-          <div className="pt-3 flex flex-wrap items-center justify-between text-xs gap-2">
-            {patient?.allergies && patient.allergies.length > 0 ? (
-              <div className="flex items-center gap-2 text-rose-900 font-bold bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>Known Drug Allergy:</span>
-                <span className="bg-rose-200 text-rose-900 px-2 py-0.5 rounded-md font-black">
-                  {patient.allergies.join(', ')}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-emerald-900 font-bold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>No known drug allergies reported</span>
-              </div>
-            )}
-            <Button
-              onClick={() => setShowVitalsModal(true)}
-              variant="outline"
-              size="sm"
-              icon={Plus}
-              className="bg-emerald-100 hover:bg-emerald-200 text-[#052e0a] border-emerald-300 font-black cursor-pointer"
-            >
-              Record New Reading
-            </Button>
-          </div>
-        </Card>
-
-        {/* Live Vitals Grid with Real Data */}
-        <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-[#297006]" />
-              <h3 className="font-extrabold text-base text-[#052e0a]">Your Body Vitals Right Now</h3>
+        {/* ERROR STATE */}
+        {status === 'error' && (
+          <Card className="p-8 text-center bg-white border-2 border-rose-200 shadow-md rounded-2xl space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
             </div>
-            {hasAnyVitals ? (
-              <Badge variant="success">● Recorded Vitals</Badge>
-            ) : (
-              <Badge variant="warning">Awaiting First Reading</Badge>
-            )}
-          </div>
-
-          {hasAnyVitals ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-              {/* Heart Rate */}
-              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-gray-500 block">Pulse (Heart Rate)</span>
-                  <span className="text-2xl font-black text-[#052e0a]">
-                    {vitals?.heart_rate ? (
-                      <>{vitals.heart_rate} <small className="font-normal text-xs text-gray-500">bpm</small></>
-                    ) : (
-                      <span className="text-gray-400 font-medium">—</span>
-                    )}
-                  </span>
-                  <span className="text-[11px] text-emerald-700 font-bold block mt-1">
-                    {vitals?.heart_rate ? '✓ Normal (60–100 bpm)' : 'Not recorded'}
-                  </span>
-                </div>
-                <Heart className="w-8 h-8 text-rose-500 fill-rose-500/20 shrink-0" />
-              </div>
-
-              {/* Blood Pressure */}
-              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-gray-500 block">Blood Pressure</span>
-                  <span className="text-2xl font-black text-[#052e0a]">
-                    {getBpDisplay() || <span className="text-gray-400 font-medium">—</span>}
-                  </span>
-                  <span className="text-[11px] text-emerald-700 font-bold block mt-1">
-                    {getBpDisplay() ? '✓ Target ~120/80' : 'Not recorded'}
-                  </span>
-                </div>
-                <Activity className="w-8 h-8 text-blue-600 shrink-0" />
-              </div>
-
-              {/* Oxygen SpO2 */}
-              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-gray-500 block">Oxygen (SpO2)</span>
-                  <span className="text-2xl font-black text-[#052e0a]">
-                    {vitals?.spo2 ? `${vitals.spo2}%` : <span className="text-gray-400 font-medium">—</span>}
-                  </span>
-                  <span className="text-[11px] text-emerald-700 font-bold block mt-1">
-                    {vitals?.spo2 ? '✓ Target 95–100%' : 'Not recorded'}
-                  </span>
-                </div>
-                <Droplet className="w-8 h-8 text-teal-600 shrink-0" />
-              </div>
-
-              {/* Temperature */}
-              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-gray-500 block">Body Temperature</span>
-                  <span className="text-2xl font-black text-[#052e0a]">
-                    {vitals?.temperature ? `${vitals.temperature}°F` : <span className="text-gray-400 font-medium">—</span>}
-                  </span>
-                  <span className="text-[11px] text-emerald-700 font-bold block mt-1">
-                    {vitals?.temperature ? '✓ Body Temperature' : 'Not recorded'}
-                  </span>
-                </div>
-                <Thermometer className="w-8 h-8 text-amber-600 shrink-0" />
-              </div>
-            </div>
-          ) : (
-            <div className="p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-center space-y-2">
-              <Activity className="w-8 h-8 text-slate-400 mx-auto" />
-              <p className="text-sm font-black text-slate-800">No Vital Readings Recorded Yet</p>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Record your pulse, blood pressure, or temperature manually, or scan a clinical prescription slip.
+            <div>
+              <h3 className="text-lg font-black text-gray-900">Unable to Load Medical Records Summary</h3>
+              <p className="text-xs sm:text-sm text-gray-600 max-w-md mx-auto mt-1">
+                {errorMessage || 'There was a connection issue loading your records. Please try again.'}
               </p>
+            </div>
+            <div className="flex justify-center gap-3 pt-2">
               <Button
-                onClick={() => setShowVitalsModal(true)}
+                onClick={() => loadRecordsSummary(true)}
                 variant="primary"
                 size="sm"
-                icon={Plus}
-                className="mt-2 bg-emerald-700 hover:bg-emerald-800"
+                icon={RefreshCw}
+                className="bg-[#297006] hover:bg-[#1f5604] text-white font-bold"
               >
-                Record First Reading
+                Retry Loading
+              </Button>
+              <Button
+                to="/records"
+                variant="outline"
+                size="sm"
+                icon={ArrowRight}
+                className="font-bold"
+              >
+                Go to Detailed Records
               </Button>
             </div>
-          )}
+          </Card>
+        )}
 
-          {/* Vitals Trend Section */}
-          <div className="pt-3 border-t border-slate-100">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Historical Vitals Trend</span>
-              </span>
+        {/* EMPTY STATE */}
+        {status === 'empty' && (
+          <Card className="p-10 sm:p-14 text-center bg-white/95 border-2 border-emerald-300 shadow-sm rounded-2xl space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-[#297006] flex items-center justify-center mx-auto shadow-xs border border-emerald-200">
+              <FileText className="w-8 h-8" />
+            </div>
+            <div className="space-y-1.5 max-w-md mx-auto">
+              <h3 className="text-xl font-extrabold text-[#052e0a]">No Medical Records Uploaded Yet</h3>
+              <p className="text-xs sm:text-sm text-gray-600 leading-relaxed">
+                You haven&apos;t scanned or uploaded any medical reports yet. Add your doctor slips, lab reports, or scans to see dynamic summaries and AI insights.
+              </p>
+            </div>
+            <div className="pt-3 flex justify-center gap-3">
+              <Button
+                to="/scanner"
+                variant="primary"
+                size="md"
+                icon={Plus}
+                className="bg-[#297006] hover:bg-[#1f5604] text-white font-bold px-6 shadow-sm"
+              >
+                Scan Your First Paper
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* MAIN SUMMARY CONTENT (WHEN SUCCESSFUL) */}
+        {status === 'success' && (
+          <>
+            {/* Dynamic Statistics Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+              {/* Card 1: Total Records */}
+              <Card 
+                onClick={() => navigate('/records')}
+                className="p-4 bg-white/95 hover:bg-white border-2 border-emerald-200/80 hover:border-[#297006] shadow-xs hover:shadow-md transition-all cursor-pointer rounded-2xl flex flex-col justify-between group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-600">Total Records</span>
+                  <div className="w-7 h-7 rounded-xl bg-emerald-50 text-[#297006] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Layers className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl sm:text-3xl font-black text-[#052e0a]">{stats.total}</div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-[#297006] mt-1">
+                    <span>Verified Papers</span>
+                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </div>
+              </Card>
+
+              {/* Card 2: Prescriptions */}
+              <Card 
+                onClick={() => navigate('/records?type=Prescription')}
+                className="p-4 bg-white/95 hover:bg-white border-2 border-emerald-200/80 hover:border-[#297006] shadow-xs hover:shadow-md transition-all cursor-pointer rounded-2xl flex flex-col justify-between group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-600">Prescriptions</span>
+                  <div className="w-7 h-7 rounded-xl bg-emerald-50 text-[#297006] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Pill className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl sm:text-3xl font-black text-[#052e0a]">{stats.prescriptions}</div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-[#297006] mt-1">
+                    <span>Doctor Slips</span>
+                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </div>
+              </Card>
+
+              {/* Card 3: Lab Reports */}
+              <Card 
+                onClick={() => navigate('/records?type=Lab%20Report')}
+                className="p-4 bg-white/95 hover:bg-white border-2 border-sky-200/80 hover:border-[#00bcd4] shadow-xs hover:shadow-md transition-all cursor-pointer rounded-2xl flex flex-col justify-between group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-600">Lab Reports</span>
+                  <div className="w-7 h-7 rounded-xl bg-sky-50 text-[#00bcd4] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Droplet className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl sm:text-3xl font-black text-sky-950">{stats.labReports}</div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-[#00bcd4] mt-1">
+                    <span>Blood & Diagnostic</span>
+                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </div>
+              </Card>
+
+              {/* Card 4: Radiology & Imaging */}
+              <Card 
+                onClick={() => navigate('/records?type=Radiology')}
+                className="p-4 bg-white/95 hover:bg-white border-2 border-purple-200/80 hover:border-purple-600 shadow-xs hover:shadow-md transition-all cursor-pointer rounded-2xl flex flex-col justify-between group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-600">Radiology</span>
+                  <div className="w-7 h-7 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Activity className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl sm:text-3xl font-black text-purple-950">{stats.radiology}</div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-purple-600 mt-1">
+                    <span>X-Rays & Scans</span>
+                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </div>
+              </Card>
+
+              {/* Card 5: Other Documents */}
+              <Card 
+                onClick={() => navigate('/records?type=Other')}
+                className="p-4 bg-white/95 hover:bg-white border-2 border-amber-200/80 hover:border-amber-600 shadow-xs hover:shadow-md transition-all cursor-pointer rounded-2xl flex flex-col justify-between group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-600">Other Records</span>
+                  <div className="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl sm:text-3xl font-black text-amber-950">{stats.others}</div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-amber-700 mt-1">
+                    <span>Discharge / Misc</span>
+                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </div>
+              </Card>
             </div>
 
-            {vitalsHistory && vitalsHistory.length >= 2 ? (
-              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span>Showing last {vitalsHistory.length} readings</span>
-                  <span className="text-emerald-800 font-bold">Latest: {new Date(vitalsHistory[0]?.recorded_at || Date.now()).toLocaleDateString()}</span>
+            {/* HIGHLIGHTED LATEST MEDICAL RECORD */}
+            {latestDoc && (
+              <Card className="p-5 sm:p-6 bg-white/95 border-2 border-[#297006] shadow-sm rounded-2xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full bg-[#297006] text-white text-[11px] font-black uppercase tracking-wider">
+                      ★ Latest Verified Record
+                    </span>
+                    <Badge variant="default" className="text-[11px] font-bold bg-emerald-50 text-[#297006]">
+                      {latestDoc.doc_type}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs font-bold text-gray-500">
+                    <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Uploaded {latestDoc.date || 'Recently'}</span>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  {vitalsHistory.slice(0, 4).map((r, i) => (
-                    <div key={i} className="p-2 bg-white rounded-xl border border-slate-200">
-                      <span className="text-[10px] text-slate-400 font-mono block">
-                        {new Date(r.recorded_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 space-y-2">
+                    <h3 className="text-lg sm:text-xl font-extrabold text-gray-900 leading-snug">
+                      {latestDoc.title}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 font-medium">
+                      {latestDoc.doctor && (
+                        <span className="flex items-center gap-1">
+                          <Stethoscope className="w-3.5 h-3.5 text-[#297006]" />
+                          <span>Dr. {latestDoc.doctor}</span>
+                        </span>
+                      )}
+                      {latestDoc.facility && (
+                        <span className="flex items-center gap-1">
+                          <Building2 className="w-3.5 h-3.5 text-[#00bcd4]" />
+                          <span>{latestDoc.facility}</span>
+                        </span>
+                      )}
+                    </div>
+                    {latestDoc.diagnosis && (
+                      <div className="mt-3 p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-200/80 text-xs font-medium text-[#052e0a] leading-relaxed">
+                        <span className="font-bold block text-[11px] uppercase tracking-wide text-[#297006] mb-0.5">
+                          Key Findings & Diagnosis:
+                        </span>
+                        {latestDoc.diagnosis}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-black text-gray-400 uppercase tracking-wider block">
+                        Document Status
                       </span>
-                      <p className="font-extrabold text-slate-900 mt-0.5">
-                        {r.heart_rate ? `${r.heart_rate} bpm` : (r.bp_systolic ? `${r.bp_systolic}/${r.bp_diastolic}` : 'Recorded')}
+                      <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#297006]">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>OCR & Data Extracted</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 pt-1">
+                        Available for AI questions and clinical review.
                       </p>
                     </div>
+
+                    <div className="space-y-2 pt-2">
+                      <Button
+                        onClick={() => setSelectedDoc(latestDoc)}
+                        variant="primary"
+                        size="sm"
+                        fullWidth
+                        icon={Eye}
+                        className="bg-[#297006] hover:bg-[#1f5604] text-white font-bold text-xs shadow-xs"
+                      >
+                        View Full Details
+                      </Button>
+                      <Button
+                        to="/records"
+                        variant="outline"
+                        size="sm"
+                        fullWidth
+                        icon={ArrowRight}
+                        className="text-xs font-bold bg-white text-gray-700 hover:bg-gray-100"
+                      >
+                        Records Timeline
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* RECENT MEDICAL REPORTS SECTION WITH CATEGORY PILLS */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-extrabold text-[#052e0a]">
+                    Recent Medical Reports
+                  </h2>
+                  <p className="text-xs text-gray-600">
+                    Fast preview of your recent prescriptions, blood work, and clinical reports.
+                  </p>
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
+                  {[
+                    { id: 'All', label: `All (${stats.total})` },
+                    { id: 'Prescriptions', label: `💊 Prescriptions (${stats.prescriptions})` },
+                    { id: 'Lab Reports', label: `🧪 Labs (${stats.labReports})` },
+                    { id: 'Radiology', label: `🩻 Scans (${stats.radiology})` },
+                    { id: 'Other', label: `📄 Other (${stats.others})` }
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => setActiveFilter(f.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                        activeFilter === f.id
+                          ? 'bg-[#297006] text-white shadow-xs font-black'
+                          : 'bg-white/90 text-gray-700 hover:bg-white border border-emerald-200'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="bg-slate-50 p-3 rounded-xl text-center text-xs text-slate-500 font-medium">
-                Not enough readings for a trend yet. Log at least two readings to view comparative trends.
-              </div>
-            )}
-          </div>
-        </Card>
 
-        {/* Daily Medicines & Medical Reports Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* Active Prescriptions / Daily Medicines */}
-          <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <Pill className="w-5 h-5 text-[#297006]" />
-                <div>
-                  <h3 className="font-extrabold text-sm sm:text-base text-[#052e0a]">Daily Prescribed Medicines</h3>
-                  <p className="text-[11px] text-gray-500">Tap a medicine to mark as taken today</p>
-                </div>
+              {/* Compact Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredRecentDocs.map((doc) => {
+                  const cat = getDocumentCategory(doc);
+                  const isPrescription = cat === 'Prescription';
+                  const isLab = cat === 'Lab Report';
+                  const isRad = cat === 'Radiology';
+
+                  return (
+                    <Card
+                      key={doc.id || doc.doc_id}
+                      onClick={() => setSelectedDoc(doc)}
+                      className="p-4 sm:p-5 bg-white/95 hover:bg-white border-2 border-gray-200 hover:border-[#297006] hover:shadow-md transition-all flex flex-col justify-between cursor-pointer rounded-2xl group space-y-3"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                            isPrescription 
+                              ? 'bg-emerald-100 text-[#297006]' 
+                              : isLab 
+                              ? 'bg-sky-100 text-[#00bcd4]' 
+                              : isRad 
+                              ? 'bg-purple-100 text-purple-700' 
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {doc.doc_type || 'Document'}
+                          </span>
+                          <span className="text-[11px] font-bold text-gray-500">
+                            {doc.date || 'Archived'}
+                          </span>
+                        </div>
+
+                        <h4 className="font-extrabold text-sm text-gray-900 mt-2 line-clamp-2 group-hover:text-[#297006] transition-colors">
+                          {doc.title}
+                        </h4>
+                        
+                        <p className="text-xs text-gray-500 mt-1 line-clamp-1 font-medium">
+                          {doc.doctor ? `Dr. ${doc.doctor}` : 'Attending Physician'} 
+                          {doc.facility ? ` • ${doc.facility}` : ''}
+                        </p>
+
+                        <div className="mt-2.5 p-2.5 bg-gray-50 rounded-xl text-xs text-gray-700 line-clamp-2 border border-gray-100 font-medium leading-relaxed">
+                          {doc.diagnosis || doc.extracted_text || 'Clinical data recorded and processed.'}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs font-black text-[#297006]">
+                        <span>View Details</span>
+                        <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
-              <Link to="/scanner" className="text-xs font-bold text-[#297006] hover:underline flex items-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> Scan New Slip
-              </Link>
+
+              {filteredRecentDocs.length === 0 && (
+                <Card className="p-8 text-center bg-white/90 border border-gray-200 rounded-2xl text-gray-500 space-y-2">
+                  <FileText className="w-8 h-8 text-gray-300 mx-auto" />
+                  <p className="text-xs font-bold">No records found in this category.</p>
+                  <Button
+                    onClick={() => setActiveFilter('All')}
+                    variant="outline"
+                    size="xs"
+                    className="font-bold"
+                  >
+                    Reset Filter
+                  </Button>
+                </Card>
+              )}
+
+              <div className="flex justify-center pt-2">
+                <Button
+                  to="/records"
+                  variant="outline"
+                  size="md"
+                  icon={ArrowRight}
+                  className="bg-white hover:bg-gray-50 text-gray-800 font-bold border-2 border-emerald-300 shadow-xs px-6"
+                >
+                  Explore All ({stats.total}) Records in Timeline
+                </Button>
+              </div>
             </div>
 
-            {medications && medications.length > 0 ? (
-              <div className="space-y-2.5">
-                {medications.map((m) => (
-                  <div
-                    key={m.id}
-                    onClick={() => handleToggleMed(m.id)}
-                    className={`p-3.5 rounded-2xl border-2 transition-all flex items-center justify-between cursor-pointer text-xs ${
-                      m.taken_today
-                        ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950'
-                        : 'bg-gray-50 hover:bg-emerald-50/40 border-gray-200'
+            {/* SYNTHESIZED CLINICAL SUMMARY & NARRATIVE INSIGHTS */}
+            <Card className="p-5 sm:p-6 bg-white/95 border-2 border-emerald-200/90 shadow-sm rounded-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#297006] flex items-center justify-center font-bold">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-extrabold text-[#052e0a]">
+                      Synthesized Clinical Narrative & Findings
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Consolidated overview derived from verified clinical documents and doctor visits.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bilingual Toggle */}
+                <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200 self-start sm:self-auto">
+                  <button
+                    onClick={() => setSummaryLang('en')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                      summaryLang === 'en'
+                        ? 'bg-white text-gray-900 shadow-xs font-black'
+                        : 'text-gray-500 hover:text-gray-900'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-xs transition ${
-                        m.taken_today ? 'bg-[#297006] text-white' : 'border-2 border-gray-300 text-gray-300'
-                      }`}>
-                        ✓
-                      </span>
-                      <div>
-                        <h4 className="font-black text-sm text-gray-900">
-                          {m.name} <span className="font-bold text-xs text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-md">({m.dose})</span>
-                        </h4>
-                        <p className="text-xs text-gray-600 mt-0.5">{m.instruction || m.frequency}</p>
-                      </div>
-                    </div>
-                    <Badge variant={m.taken_today ? 'success' : 'warning'}>
-                      {m.taken_today ? '✓ Taken Today' : (m.timing || 'Mark Taken')}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-6 px-4 bg-emerald-50/50 rounded-2xl border border-dashed border-emerald-200">
-                <Pill className="w-8 h-8 text-emerald-600/70 mx-auto mb-2" />
-                <p className="text-xs sm:text-sm font-bold text-[#052e0a]">No Active Medications Documented</p>
-                <p className="text-[11px] text-gray-500 mt-0.5 max-w-sm mx-auto">
-                  Scan a prescription slip or clinical discharge summary to digitize your medication schedules automatically.
-                </p>
-                <Link
-                  to="/scanner"
-                  className="inline-flex items-center gap-1.5 mt-3 px-3.5 py-1.5 rounded-xl bg-[#297006] hover:bg-[#1f5704] text-white text-xs font-bold transition shadow-2xs"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Scan Prescription Slip
-                </Link>
-              </div>
-            )}
-          </Card>
-
-          {/* Diagnostic Scans & Reports */}
-          <Card className="p-5 sm:p-6 shadow-md border-2 border-emerald-200/80 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-[#3f51b5]" />
-                <div>
-                  <h3 className="font-extrabold text-sm sm:text-base text-[#052e0a]">Saved Medical Reports</h3>
-                  <p className="text-[11px] text-gray-500">Tap any report to view summary</p>
+                    English
+                  </button>
+                  <button
+                    onClick={() => setSummaryLang('hi')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                      summaryLang === 'hi'
+                        ? 'bg-white text-gray-900 shadow-xs font-black'
+                        : 'text-gray-500 hover:text-gray-900'
+                    }`}
+                  >
+                    हिन्दी
+                  </button>
                 </div>
               </div>
-              <Link to="/records" className="text-xs font-bold text-[#3f51b5] hover:underline">
-                View All Records →
-              </Link>
-            </div>
 
-            {Array.isArray(documents) && documents.length > 0 ? (
-              <div className="space-y-2.5">
-                {documents.map((d) => (
-                  <div
-                    key={d.id}
-                    onClick={() => setSelectedDoc(d)}
-                    className="p-3 bg-gray-50 hover:bg-emerald-50/50 rounded-2xl border border-gray-200 flex items-center justify-between text-xs cursor-pointer transition"
-                  >
-                    <div className="flex items-center gap-3 truncate pr-2">
-                      <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#3f51b5] flex items-center justify-center shrink-0">
-                        <FileText className="w-5 h-5" />
-                      </div>
-                      <div className="truncate">
-                        <h4 className="font-black text-sm text-gray-900 truncate">{d.title}</h4>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {d.doc_type} • {d.doctor || 'Physician'}
-                        </p>
-                      </div>
+              {/* Narrative Box */}
+              <div className="p-4 sm:p-5 bg-emerald-50/70 rounded-2xl border border-emerald-200 text-xs sm:text-sm text-[#052e0a] font-medium leading-relaxed">
+                {narrativeSummary}
+              </div>
+
+              {/* Structured Points */}
+              {summaryData && (summaryData.chief_complaint || summaryData.provisional_diagnosis || summaryData.recommended_actions) && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  {summaryData.chief_complaint && (
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 block">
+                        Primary Concern
+                      </span>
+                      <p className="text-xs font-bold text-gray-900 mt-0.5">
+                        {summaryData.chief_complaint}
+                      </p>
                     </div>
-                    <Badge variant="default" className="text-[10px] uppercase font-mono shrink-0">
-                      Verified
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-6 px-4 bg-blue-50/50 rounded-2xl border border-dashed border-blue-200">
-                <FileText className="w-8 h-8 text-blue-500/70 mx-auto mb-2" />
-                <p className="text-xs sm:text-sm font-bold text-[#052e0a]">No Past Documents Scanned</p>
-                <p className="text-[11px] text-gray-500 mt-0.5 max-w-sm mx-auto">
-                  Keep all your doctor slips and test reports digitized and safely organized in one place.
+                  )}
+
+                  {summaryData.provisional_diagnosis && (
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 block">
+                        Documented Diagnosis
+                      </span>
+                      <p className="text-xs font-bold text-gray-900 mt-0.5">
+                        {summaryData.provisional_diagnosis}
+                      </p>
+                    </div>
+                  )}
+
+                  {summaryData.recommended_actions && (
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 block">
+                        Next Steps / Plan
+                      </span>
+                      <p className="text-xs font-bold text-gray-900 mt-0.5">
+                        {typeof summaryData.recommended_actions === 'string' 
+                          ? summaryData.recommended_actions 
+                          : Array.isArray(summaryData.recommended_actions)
+                          ? summaryData.recommended_actions.join(', ')
+                          : 'Follow up as advised by physician.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                <p className="text-[11px] text-gray-500">
+                  Need clarification? The MediKiosk Health Assistant can explain your reports and medications.
                 </p>
-                <Link
-                  to="/scanner"
-                  className="inline-flex items-center gap-1.5 mt-3 px-3.5 py-1.5 rounded-xl bg-[#3f51b5] hover:bg-[#303f9f] text-white text-xs font-bold transition shadow-2xs"
+                <Button
+                  to="/agent"
+                  variant="primary"
+                  size="sm"
+                  icon={Sparkles}
+                  className="bg-[#297006] hover:bg-[#1f5604] text-white font-bold shadow-xs whitespace-nowrap"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Scan Document
-                </Link>
+                  Discuss Summary with AI Assistant
+                </Button>
               </div>
+            </Card>
+
+            {/* ACTIVE MEDICATIONS SUMMARY */}
+            {activeMedications.length > 0 && (
+              <Card className="p-5 sm:p-6 bg-white/95 border-2 border-emerald-200/80 shadow-sm rounded-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#297006] flex items-center justify-center font-bold">
+                      <Pill className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-extrabold text-[#052e0a]">
+                        Active Prescribed Medications
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Medicines recorded from your prescriptions and clinical visits.
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="success" className="text-[10px] font-black bg-emerald-100 text-[#297006]">
+                    {activeMedications.length} Active
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activeMedications.map((med, idx) => (
+                    <div 
+                      key={med.id || idx}
+                      className="p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200/80 flex items-start justify-between gap-2"
+                    >
+                      <div className="space-y-0.5">
+                        <h5 className="text-xs font-extrabold text-gray-900">
+                          {med.name || med.medicine_name || 'Prescribed Medicine'}
+                        </h5>
+                        <p className="text-[11px] text-gray-600 font-medium">
+                          {med.dosage ? `${med.dosage} • ` : ''}{med.frequency || 'Take as directed'}
+                        </p>
+                        {med.instructions && (
+                          <p className="text-[10px] text-gray-500 italic mt-1">
+                            &quot;{med.instructions}&quot;
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant="default" className="text-[9px] uppercase font-black bg-white text-[#297006] border border-emerald-200 shrink-0">
+                        Prescribed
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </Card>
             )}
-          </Card>
-        </div>
+          </>
+        )}
 
       </div>
 
-      {/* RECORD NEW VITALS READING MODAL */}
-      {showVitalsModal && (
-        <Modal
-          isOpen={showVitalsModal}
-          onClose={() => setShowVitalsModal(false)}
-          title="Record New Vitals Reading"
-          subtitle="Manually enter your observed clinical vital signs"
-          icon={Activity}
-        >
-          <form onSubmit={handleSaveVitals} className="space-y-4 text-xs text-slate-800">
-            {vitalsError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl font-semibold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{vitalsError}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Systolic BP (mmHg)
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 120"
-                  value={formBpSys}
-                  onChange={(e) => setFormBpSys(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Diastolic BP (mmHg)
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 80"
-                  value={formBpDia}
-                  onChange={(e) => setFormBpDia(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Heart Rate / Pulse (bpm)
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 72"
-                  value={formHeartRate}
-                  onChange={(e) => setFormHeartRate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Oxygen SpO2 (%)
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 98"
-                  value={formSpo2}
-                  onChange={(e) => setFormSpo2(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Body Temperature (°F)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="e.g. 98.6"
-                  value={formTemp}
-                  onChange={(e) => setFormTemp(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Blood Glucose (mg/dL)
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 95"
-                  value={formGlucose}
-                  onChange={(e) => setFormGlucose(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowVitalsModal(false)}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={savingVitals}
-                className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold transition flex items-center gap-2 disabled:opacity-70"
-              >
-                {savingVitals ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                <span>{savingVitals ? 'Saving...' : 'Save Reading'}</span>
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* DETAIL MODAL FOR SELECTED DOCUMENT */}
+      {/* DOCUMENT DETAIL MODAL */}
       {selectedDoc && (
         <Modal
           isOpen={Boolean(selectedDoc)}
           onClose={() => setSelectedDoc(null)}
           title={selectedDoc.title}
-          subtitle={`${selectedDoc.doc_type} • ${selectedDoc.doctor || 'Doctor'}`}
+          subtitle={`${selectedDoc.doc_type || 'Document'} • ${selectedDoc.date || 'Archived'}`}
           icon={FileText}
         >
-          <div className="space-y-3.5 text-xs text-gray-900">
-            <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-2xl border border-gray-200">
+          <div className="space-y-4 text-xs text-gray-900">
+            {/* Doctor & Facility */}
+            <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
               <div>
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Doctor</span>
-                <p className="font-bold text-gray-900 mt-0.5">{selectedDoc.doctor || 'Not specified'}</p>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider block">
+                  Attending Doctor
+                </span>
+                <p className="font-bold text-gray-900 mt-0.5">
+                  {selectedDoc.doctor || 'Not specified'}
+                </p>
               </div>
               <div>
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Hospital / Clinic</span>
-                <p className="font-bold text-gray-900 mt-0.5">{selectedDoc.facility || 'Not specified'}</p>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider block">
+                  Hospital / Clinic
+                </span>
+                <p className="font-bold text-gray-900 mt-0.5">
+                  {selectedDoc.facility || 'Verified Medical Center'}
+                </p>
               </div>
             </div>
 
+            {/* Diagnosis / Findings */}
             <div>
-              <span className="text-[11px] font-bold text-gray-700 block mb-1">Clinical Findings & Diagnosis:</span>
+              <span className="text-[11px] font-bold text-gray-700 block mb-1">
+                Doctor&apos;s Diagnosis & Clinical Findings:
+              </span>
               <p className="p-3.5 bg-emerald-50 text-[#052e0a] rounded-2xl border border-emerald-200 font-medium leading-relaxed">
-                {selectedDoc.diagnosis || 'Clinical consultation recorded.'}
+                {selectedDoc.diagnosis || 'Clinical evaluation recorded with no adverse flags noted.'}
               </p>
             </div>
 
+            {/* Extracted Medications if any */}
+            {Array.isArray(selectedDoc.medications) && selectedDoc.medications.length > 0 && (
+              <div>
+                <span className="text-[11px] font-bold text-gray-700 block mb-1">
+                  Prescribed Medications in this Slip:
+                </span>
+                <div className="space-y-1.5">
+                  {selectedDoc.medications.map((m, mi) => (
+                    <div key={mi} className="p-2.5 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between text-xs">
+                      <span className="font-bold text-gray-800">
+                        {typeof m === 'string' ? m : m.name}
+                      </span>
+                      <span className="text-[11px] text-gray-500 font-medium">
+                        {typeof m === 'object' && m.frequency ? m.frequency : 'As directed'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Extracted Labs if any */}
+            {Array.isArray(selectedDoc.lab_results) && selectedDoc.lab_results.length > 0 && (
+              <div>
+                <span className="text-[11px] font-bold text-gray-700 block mb-1">
+                  Extracted Lab Test Results:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {selectedDoc.lab_results.map((l, li) => (
+                    <div key={li} className="p-2.5 bg-gray-50 rounded-xl border border-gray-200 text-xs">
+                      <span className="text-[10px] text-gray-500 block uppercase font-bold">
+                        {typeof l === 'string' ? 'Test' : l.test_name || 'Lab Test'}
+                      </span>
+                      <span className="font-extrabold text-gray-900 mt-0.5 block">
+                        {typeof l === 'string' ? l : `${l.value || ''} ${l.unit || ''}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* OCR Transcript Details */}
             {selectedDoc.extracted_text && (
-              <details className="bg-gray-50 p-3 rounded-2xl border border-gray-200 cursor-pointer">
+              <details className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 cursor-pointer">
                 <summary className="font-bold text-gray-700 text-xs select-none">
-                  📄 View Full OCR Transcript
+                  📄 View Full OCR Scanned Text
                 </summary>
                 <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed mt-2 max-h-40 overflow-y-auto">
                   {selectedDoc.extracted_text}
@@ -683,6 +964,22 @@ export function SummaryPage({ patient, vitals, medications = [], documents = [],
               </details>
             )}
 
+            {/* Original File Link if available */}
+            {selectedDoc.file_url && (
+              <div className="pt-1">
+                <a
+                  href={selectedDoc.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#00bcd4] hover:underline"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>View Original Scanned File</span>
+                </a>
+              </div>
+            )}
+
+            {/* AI Assistant Button */}
             <div className="pt-2">
               <Button
                 to="/agent"
@@ -690,13 +987,36 @@ export function SummaryPage({ patient, vitals, medications = [], documents = [],
                 size="md"
                 fullWidth
                 icon={Sparkles}
+                className="bg-[#297006] hover:bg-[#1f5604] text-white font-bold shadow-xs"
               >
-                Ask Assistant About this Record
+                Ask Health Assistant About this Paper
               </Button>
             </div>
           </div>
         </Modal>
       )}
+
+      {/* Print Specific CSS */}
+      <style>{`
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+          }
+          nav, header, button, .no-print, [role="navigation"] {
+            display: none !important;
+          }
+          .bg-\[\#cbf5d6\] {
+            background: white !important;
+          }
+          .shadow-xs, .shadow-sm, .shadow-md {
+            box-shadow: none !important;
+          }
+          .border-2 {
+            border-width: 1px !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -1,12 +1,14 @@
 """
 Clinical Medical Information Parser
 Parses raw OCR text into structured clinical records (medications, labs, diagnosis, vitals).
-Does NOT fabricate fake medications or test values when no data is detected.
+Strictly adheres to real data extraction: NEVER fabricates fake doctor, facility,
+medications, or test values when no data is detected.
 """
 
 import re
 import datetime
 import logging
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +56,14 @@ COMMON_DRUGS = [
 
 
 class MedicalParser:
-    """Extracts clinical structures from optical/OCR text."""
+    """Extracts clinical structures from optical/OCR text without fabricating missing data."""
 
     @staticmethod
-    def check_abnormal_lab(test_name: str, value: float):
+    def check_abnormal_lab(test_name: str, value: float) -> tuple[bool, str]:
         test_lower = test_name.lower().strip()
         ref = LAB_REFERENCE_RANGES.get(test_lower)
         if not ref:
-            return False, ""
+            return False, "Normal"
 
         if 'min' in ref and value < ref['min']:
             return True, f"Low ({value} {ref['unit']} < {ref['min']} {ref['unit']})"
@@ -74,12 +76,15 @@ class MedicalParser:
             return {
                 "can_extract": False,
                 "error": "We couldn't read this document. Try uploading a clearer scan or photo.",
-                "doc_type": "Other Document",
+                "doc_type": "Medical Document",
                 "title": "Medical Document",
-                "doctor": "Attending Physician",
-                "facility": "Medical Facility",
+                "patient_name": "",
+                "doctor": "",
+                "facility": "",
                 "date": datetime.date.today().strftime('%Y-%m-%d'),
                 "diagnosis": "",
+                "findings": "",
+                "impression": "",
                 "medications": [],
                 "lab_results": [],
                 "vitals": {},
@@ -90,44 +95,61 @@ class MedicalParser:
 
         text = raw_text.strip()
         lines = [line.strip() for line in text.split('\n') if line.strip()]
+        lower_text = text.lower()
 
         # 1. Document Type Detection
-        doc_type = "Prescription"
-        lower_text = text.lower()
-        if any(w in lower_text for w in ['lab report', 'investigation report', 'pathology', 'metabolic panel', 'lipid profile', 'complete blood count', 'cbc']):
+        doc_type = "Medical Document"
+        if any(w in lower_text for w in ['lab report', 'investigation report', 'pathology', 'metabolic panel', 'lipid profile', 'complete blood count', 'cbc', 'laboratory']):
             doc_type = "Lab Report"
-        elif any(w in lower_text for w in ['radiology', 'x-ray', 'ct scan', 'mri', 'ultrasound', 'sonography', 'imaging']):
-            doc_type = "Radiology"
+        elif any(w in lower_text for w in ['radiology', 'x-ray', 'ct scan', 'mri', 'ultrasound', 'sonography', 'imaging', 'diagnostic report']):
+            doc_type = "Diagnostic Report"
         elif any(w in lower_text for w in ['discharge summary', 'discharge card', 'discharge advice']):
             doc_type = "Discharge Summary"
+        elif any(w in lower_text for w in ['medical certificate', 'fitness certificate', 'sick leave certificate']):
+            doc_type = "Medical Certificate"
         elif any(w in lower_text for w in ['rx', 'prescription', 'tablet', 'capsule', 'syrup', 'dosage', 'dispense']):
             doc_type = "Prescription"
 
-        # 2. Doctor Name Detection
-        doctor = "Attending Physician"
-        doc_match = re.search(r'(?:Dr\.|Doctor|Physician|Consultant)\s+([A-Za-z\.\s]{2,30})', text, re.IGNORECASE)
+        # 2. Patient Name Detection (NO fallback fake name)
+        patient_name = ""
+        pat_patterns = [
+            r'(?:Patient\s*Name|Patient|Pt\s*Name|Pt\.?|Name|Citizen)\s*[:\-]\s*([A-Za-z\s\.\']{2,35})',
+            r'(?:Name\s*of\s*Patient)\s*[:\-]\s*([A-Za-z\s\.\']{2,35})'
+        ]
+        for pat in pat_patterns:
+            pm = re.search(pat, text, re.IGNORECASE)
+            if pm:
+                cand = pm.group(1).split('\n')[0].strip()
+                cand = re.split(r'[\|\,\(\-\;\/]|Age|\bDOB\b|\bSex\b|\bGender\b', cand, flags=re.I)[0].strip()
+                if len(cand) >= 2 and not any(cand.lower().startswith(x) for x in ['date', 'doctor', 'dr', 'hospital', 'clinic', 'rx']):
+                    patient_name = cand
+                    break
+
+        # 3. Doctor Name Detection (NO fallback fake doctor)
+        doctor = ""
+        doc_match = re.search(r'(?:Dr\.|Doctor|Physician|Consultant|Prescriber)\s+([A-Za-z\.\s\']{2,35})', text, re.IGNORECASE)
         if doc_match:
             candidate = doc_match.group(1).split('\n')[0].strip()
-            # Clean up trailing qualification words
-            candidate = re.split(r'[,\|\-\(]', candidate)[0].strip()
+            candidate = re.split(r'[,\|\-\(\;\/]', candidate)[0].strip()
+            # Clean qualification tags like MBBS, MD, MS
+            candidate = re.sub(r'\b(MBBS|MD|MS|FRCS|DNB|MRCP|BAMS|BHMS)\b', '', candidate, flags=re.I).strip()
             if len(candidate) > 2:
                 doctor = f"Dr. {candidate}" if not candidate.lower().startswith('dr') else candidate
 
-        # 3. Facility / Clinic Detection
-        facility = "Medical Center"
-        facility_match = re.search(r'([A-Za-z0-9\s&\'\.\-]{3,40}(?:Hospital|Clinic|Center|Health|Diagnostics|Pathology|Laboratories|Infirmary|Pavilion))', text, re.IGNORECASE)
+        # 4. Facility / Clinic Detection (NO fallback fake facility)
+        facility = ""
+        facility_match = re.search(r'([A-Za-z0-9\s&\'\.\-]{3,45}(?:Hospital|Clinic|Healthcare|Health\s+Center|Medical\s+Center|Diagnostics|Pathology|Laboratories|Infirmary|Pavilion|Nursing\s+Home))', text, re.IGNORECASE)
         if facility_match:
             candidate_fac = facility_match.group(1).strip()
             if len(candidate_fac) > 4:
                 facility = candidate_fac
         elif lines:
-            # First line often contains hospital name if printed at the top
             top_line = lines[0].strip()
-            if len(top_line) < 50 and not re.search(r'\b(date|patient|dr|name)\b', top_line, re.I):
+            if len(top_line) < 50 and any(w in top_line.lower() for w in ['hospital', 'clinic', 'health', 'care', 'medical', 'center', 'lab']):
                 facility = top_line
 
-        # 4. Date Extraction
-        doc_date = datetime.date.today().strftime('%Y-%m-%d')
+        # 5. Date Extraction
+        doc_date = ""
         date_patterns = [
             r'\b(\d{4}-\d{2}-\d{2})\b',
             r'\b(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})\b',
@@ -145,19 +167,30 @@ class MedicalParser:
                         break
                     except Exception:
                         pass
-                break
+                if doc_date:
+                    break
 
-        # 5. Diagnosis / Impression
+        if not doc_date:
+            doc_date = datetime.date.today().strftime('%Y-%m-%d')
+
+        # 6. Diagnosis / Impression / Findings (NO fallback invented diagnosis)
         diagnosis = ""
-        diag_match = re.search(r'(?:Diagnosis|Impression|Assessment|Chief Complaint|Findings)[:\-]\s*([^\n\r]+)', text, re.IGNORECASE)
+        findings = ""
+        impression = ""
+
+        diag_match = re.search(r'(?:Diagnosis|Assessment|Chief Complaint)[:\-]\s*([^\n\r]+)', text, re.IGNORECASE)
         if diag_match:
             diagnosis = diag_match.group(1).strip()
-        elif doc_type == "Lab Report":
-            diagnosis = "Routine Laboratory Diagnostic Panel"
-        elif doc_type == "Radiology":
-            diagnosis = "Diagnostic Imaging Examination"
 
-        # 6. Vitals Extraction
+        find_match = re.search(r'(?:Findings|Clinical Findings)[:\-]\s*([^\n\r]+)', text, re.IGNORECASE)
+        if find_match:
+            findings = find_match.group(1).strip()
+
+        imp_match = re.search(r'(?:Impression|Conclusion)[:\-]\s*([^\n\r]+)', text, re.IGNORECASE)
+        if imp_match:
+            impression = imp_match.group(1).strip()
+
+        # 7. Vitals Extraction (Only if actually present)
         vitals = {}
         bp_match = re.search(r'(?:BP|Blood Pressure)\s*[:\-]?\s*(\d{2,3})\s*[/xX]\s*(\d{2,3})', text, re.IGNORECASE)
         if bp_match:
@@ -179,29 +212,25 @@ class MedicalParser:
         if temp_match:
             vitals['temperature'] = float(temp_match.group(1))
 
-        # 7. Medications Extraction (Without fake fallbacks)
-        medications = []
+        # 8. Medications Extraction (NO dummy fallback medications)
+        medications: List[Dict[str, Any]] = []
         seen_drugs = set()
 
         for drug in COMMON_DRUGS:
             drug_pattern = rf'\b{re.escape(drug)}\b'
             if re.search(drug_pattern, text, re.IGNORECASE) and drug.lower() not in seen_drugs:
                 seen_drugs.add(drug.lower())
-                dose = "Standard"
-                freq = "Once daily"
-                timing = "Morning"
-                duration = "5 days"
-                instruction = "Take with water"
+                dose = ""
+                freq = ""
+                timing = ""
+                duration = ""
+                instruction = ""
 
                 for line in lines:
                     if re.search(drug_pattern, line, re.IGNORECASE):
                         dose_m = re.search(r'(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|IU|%))', line, re.IGNORECASE)
                         if dose_m:
                             dose = dose_m.group(1).strip()
-                        elif "625" in line:
-                            dose = "625 mg"
-                        elif "500" in line:
-                            dose = "500 mg"
 
                         if re.search(r'\b(TDS|TID|3 times|thrice|q8h)\b', line, re.IGNORECASE):
                             freq = "3 times daily"
@@ -226,42 +255,43 @@ class MedicalParser:
                         if "after food" in line.lower() or "after meals" in line.lower():
                             instruction = "Take after meals with water"
                         elif "empty stomach" in line.lower() or "before food" in line.lower():
-                            instruction = "Take on empty stomach (30 mins before food)"
+                            instruction = "Take on empty stomach"
                         elif "bedtime" in line.lower():
                             instruction = "Take at bedtime"
                         break
 
                 medications.append({
                     "name": drug,
-                    "dose": dose,
-                    "frequency": freq,
-                    "duration": duration,
-                    "instruction": instruction,
-                    "timing": timing
+                    "dose": dose or "As directed",
+                    "frequency": freq or "As directed",
+                    "duration": duration or "",
+                    "instruction": instruction or "",
+                    "timing": timing or ""
                 })
 
-        # Generic Rx: Numbered lines under Rx or Prescription (e.g. 1. Tab ..., 2. Syp ...)
-        rx_matches = re.findall(r'(?:^\d+[\.\)]\s*(?:Tab|Cap|Syp|Inj)?\s*([A-Za-z0-9\s\-]+?)(?:-|\n|$))', text, re.MULTILINE)
+        # Also detect numbered Rx lines (e.g. 1. Tab ..., 2. Syp ...)
+        rx_matches = re.findall(r'(?:^\d+[\.\)]\s*(?:Tab|Cap|Syp|Inj)?\.?\s*([A-Za-z0-9\s\-]+?)(?:-|\n|$))', text, re.MULTILINE)
         for cand in rx_matches:
             c_clean = cand.strip()
-            # Extract first word as drug candidate if not already seen
             words = c_clean.split()
             if words:
                 c_name = words[0]
                 if len(c_name) > 3 and c_name.lower() not in seen_drugs and c_name.isalpha():
-                    seen_drugs.add(c_name.lower())
-                    dose_m = re.search(r'(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml))', c_clean, re.I)
-                    medications.append({
-                        "name": c_name.capitalize(),
-                        "dose": dose_m.group(1) if dose_m else "Standard",
-                        "frequency": "As directed by physician",
-                        "duration": "5 days",
-                        "instruction": "Take as prescribed",
-                        "timing": "Morning"
-                    })
+                    # Validate it's not a common stop word
+                    if c_name.lower() not in ('date', 'time', 'patient', 'doctor', 'name', 'sign', 'test', 'page'):
+                        seen_drugs.add(c_name.lower())
+                        dose_m = re.search(r'(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml))', c_clean, re.I)
+                        medications.append({
+                            "name": c_name.capitalize(),
+                            "dose": dose_m.group(1) if dose_m else "",
+                            "frequency": "",
+                            "duration": "",
+                            "instruction": "",
+                            "timing": ""
+                        })
 
-        # 8. Lab Results Extraction
-        lab_results = []
+        # 9. Lab Results Extraction (Only if actually present)
+        lab_results: List[Dict[str, Any]] = []
         for test_key, ref_info in LAB_REFERENCE_RANGES.items():
             pattern = rf'(?i)\b{re.escape(test_key)}\b\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*([a-zA-Z/%]+)?'
             match = re.search(pattern, text)
@@ -282,18 +312,18 @@ class MedicalParser:
                 except Exception:
                     pass
 
-        # 9. Allergy Extraction from text
+        # 10. Allergy Extraction from text
         extracted_allergies = []
         allergy_match = re.search(r'(?:Allergies|Allergic to|Allergy)[:\-]\s*([^\n\r]+)', text, re.IGNORECASE)
         if allergy_match:
             raw_all = allergy_match.group(1).strip()
-            parts = [p.strip() for p in re.split(r'[,;/]', raw_all) if p.strip() and p.strip().lower() not in ('none', 'nil', 'n/a', 'no known')]
+            parts = [p.strip() for p in re.split(r'[,;/]', raw_all) if p.strip() and p.strip().lower() not in ('none', 'nil', 'n/a', 'no known', 'no')]
             extracted_allergies.extend(parts)
 
-        # 10. Genuine Confidence Scoring
+        # 11. Genuine Confidence Scoring
         words = text.split()
         word_count = len(words)
-        matched_indicators = len(medications) + len(lab_results) + (1 if doctor != "Attending Physician" else 0) + (1 if diagnosis else 0)
+        matched_indicators = len(medications) + len(lab_results) + (1 if doctor else 0) + (1 if diagnosis else 0) + (1 if patient_name else 0)
 
         if word_count > 30 and matched_indicators >= 2:
             confidence = "98.5%"
@@ -302,18 +332,21 @@ class MedicalParser:
         elif word_count > 5:
             confidence = "80.0%"
         else:
-            confidence = "65.0%"
+            confidence = "60.0%"
 
-        title = f"{doc_type} - {doctor}" if doctor != "Attending Physician" else f"Medical {doc_type}"
+        title = f"{doc_type} - {doctor}" if doctor else (f"{doc_type} ({facility})" if facility else f"Medical {doc_type}")
 
         return {
             "can_extract": True,
             "title": title,
             "doc_type": doc_type,
+            "patient_name": patient_name,
             "doctor": doctor,
             "facility": facility,
             "date": doc_date,
-            "diagnosis": diagnosis or f"Findings noted on {doc_type}",
+            "diagnosis": diagnosis,
+            "findings": findings,
+            "impression": impression,
             "medications": medications,
             "lab_results": lab_results,
             "vitals": vitals,

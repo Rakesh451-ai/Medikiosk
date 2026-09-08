@@ -29,17 +29,11 @@ class Command(BaseCommand):
             'triage_vikram',
         ]
         
-        # Delete demo users by explicit list and pattern
+        # Delete demo users by explicit list only - NEVER delete registered real patients
         deleted_count = 0
-        for u in User.objects.all():
-            if (
-                u.username in demo_usernames or
-                u.username.startswith('pt_') or
-                u.email.endswith(('@example.com', '@badproxy.net')) or
-                (u.role == User.Role.PATIENT and u.username != 'admin')
-            ):
-                u.delete()
-                deleted_count += 1
+        for u in User.objects.filter(username__in=demo_usernames):
+            u.delete()
+            deleted_count += 1
 
         self.stdout.write(self.style.SUCCESS(f"✓ Removed {deleted_count} demo and temporary patient accounts."))
 
