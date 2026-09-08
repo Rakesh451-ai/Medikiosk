@@ -217,20 +217,13 @@ export default function AuthPage({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] w-full bg-gradient-to-br from-emerald-50/90 via-[#f2f8f4] to-teal-50/70 py-8 px-4 flex items-center justify-center font-sans">
+    <div className="min-h-[calc(100vh-4rem)] w-full bg-gradient-to-br from-emerald-50/90 via-[#f2f8f4] to-teal-50/70 py-4 px-4 flex items-center justify-center font-sans">
       <div className="max-w-lg w-full space-y-5">
         {/* Header Branding */}
         <div className="text-center space-y-1.5">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold shadow-2xs">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Ayushman Bharat & UIDAI Health Gateway</span>
-          </div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
             MediKiosk Health Station
           </h1>
-          <p className="text-xs sm:text-sm text-slate-600">
-            Secure Patient Electronic Health Records & Optical Slip Scanner
-          </p>
         </div>
 
         {/* Card Container */}
@@ -250,7 +243,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Returning Patient (Log In)
+              Log In
             </button>
             <button
               type="button"
@@ -265,7 +258,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              New Patient (Register)
+              Register
             </button>
           </div>
 
@@ -573,7 +566,7 @@ export default function AuthPage({ onLoginSuccess }) {
                 </div>
               </div>
 
-              <div>
+              {/* <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Known Drug Allergies (Optional, comma-separated)
                 </label>
@@ -584,7 +577,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   placeholder="e.g. Penicillin, Sulfa, Aspirin"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
                 />
-              </div>
+              </div> */}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -623,17 +616,6 @@ export default function AuthPage({ onLoginSuccess }) {
               </button>
             </form>
           )}
-
-          {/* Quick Doctor / Staff Link */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Healthcare Staff?</span>
-            <Link
-              to="/doctor/login"
-              className="text-emerald-700 hover:text-emerald-800 font-bold hover:underline flex items-center gap-1"
-            >
-              <Stethoscope className="w-3.5 h-3.5" /> Doctor Portal Login →
-            </Link>
-          </div>
         </div>
       </div>
     </div>
