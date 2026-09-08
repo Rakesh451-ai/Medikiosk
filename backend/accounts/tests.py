@@ -52,6 +52,14 @@ class AccountsAuthAndRolePermissionsTest(TestCase):
             station_id='Kiosk Station 01'
         )
 
+        # Create Admin
+        self.admin_user = User.objects.create_superuser(
+            username='test_admin',
+            email='admin@medikiosk.test',
+            password='AdminPassword123!',
+            role=User.Role.ADMIN
+        )
+
     def test_custom_user_roles(self):
         self.assertTrue(self.patient_user.is_patient)
         self.assertFalse(self.patient_user.is_doctor)
@@ -126,4 +134,179 @@ class AccountsAuthAndRolePermissionsTest(TestCase):
         self.client.force_authenticate(user=self.staff_user)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_multi_identifier_lookup(self):
+        # Set Aadhaar and Email for test patient
+        self.patient_profile.mock_aadhaar_id = '5521 8934 1284'
+        self.patient_profile.save()
+        self.patient_user.email = 'test.patient@example.com'
+        self.patient_user.save()
+
+        # Lookup by Aadhaar
+        res = self.client.get(reverse('auth-lookup') + '?identifier=552189341284')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['exists'])
+        self.assertEqual(res.data['identifier_type'], 'aadhaar')
+
+        # Lookup by ABHA
+        res = self.client.get(reverse('auth-lookup') + '?identifier=14-1111-2222-3333')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['exists'])
+        self.assertEqual(res.data['identifier_type'], 'abha')
+
+        # Lookup by Mobile Phone
+        res = self.client.get(reverse('auth-lookup') + '?identifier=9876543210')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['exists'])
+        self.assertEqual(res.data['identifier_type'], 'mobile')
+
+        # Lookup by Email
+        res = self.client.get(reverse('auth-lookup') + '?identifier=test.patient@example.com')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['exists'])
+        self.assertEqual(res.data['identifier_type'], 'email')
+
+    def test_otp_send_and_verify_aadhaar(self):
+        self.patient_profile.mock_aadhaar_id = '5521 8934 1284'
+        self.patient_profile.save()
+
+        # 1. Send OTP
+        send_res = self.client.post(reverse('auth-otp-send'), {'identifier': '5521 8934 1284'}, format='json')
+        self.assertEqual(send_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(send_res.data['identifier_type'], 'aadhaar')
+        self.assertIn('demo_otp', send_res.data)
+        otp_code = send_res.data['demo_otp']
+
+        # 2. Verify OTP
+        verify_res = self.client.post(reverse('auth-otp-verify'), {
+            'identifier': '552189341284',
+            'otp': otp_code
+        }, format='json')
+        self.assertEqual(verify_res.status_code, status.HTTP_200_OK)
+        self.assertIn('tokens', verify_res.data)
+        self.assertEqual(verify_res.data['user']['username'], 'test_patient')
+
+    def test_unified_login_mobile_and_password(self):
+        res = self.client.post(reverse('auth-unified-login'), {
+            'identifier': '9876543210',
+            'auth_mode': 'password',
+            'password': 'Password123!'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('tokens', res.data)
+        self.assertEqual(res.data['user']['username'], 'test_patient')
+
+    def test_new_user_otp_auto_registration(self):
+        # 1. Send OTP to create verification record
+        send_res = self.client.post(reverse('auth-otp-send'), {'identifier': '9988 7766 5544'}, format='json')
+        self.assertEqual(send_res.status_code, status.HTTP_200_OK)
+        otp_code = send_res.data['demo_otp']
+
+        # 2. Authenticate with an entirely new 12-digit Aadhaar number
+        res = self.client.post(reverse('auth-otp-verify'), {
+            'identifier': '9988 7766 5544',
+            'otp': otp_code,
+            'name': 'Pooja Verma',
+            'preferred_language': 'hi'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['created'])
+        self.assertEqual(res.data['user']['role'], User.Role.PATIENT)
+        self.assertEqual(res.data['user']['patient_profile']['name'], 'Pooja Verma')
+        self.assertTrue(res.data['user']['patient_profile']['mock_aadhaar_id'].startswith('9988'))
+
+    def test_admin_stats_and_users_list(self):
+        # 1. Unauthenticated request denied
+        stats_res_anon = self.client.get(reverse('admin-stats'))
+        self.assertEqual(stats_res_anon.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Normal patient request denied
+        self.client.force_authenticate(user=self.patient_user)
+        stats_res_patient = self.client.get(reverse('admin-stats'))
+        self.assertEqual(stats_res_patient.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Authenticated admin request succeeds
+        self.client.force_authenticate(user=self.admin_user)
+        stats_res = self.client.get(reverse('admin-stats'))
+        self.assertEqual(stats_res.status_code, status.HTTP_200_OK)
+        self.assertIn('total_users', stats_res.data)
+        self.assertIn('flagged_spammers_count', stats_res.data)
+
+        users_res = self.client.get(reverse('admin-users-list'))
+        self.assertEqual(users_res.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(users_res.data['count'], 4)
+
+    def test_spammer_blocking_and_blacklist_enforcement(self):
+        from accounts.models import BlockedIdentifier
+
+        # Admin authenticates to block
+        self.client.force_authenticate(user=self.admin_user)
+
+        # Block phone
+        block_res = self.client.post(reverse('admin-security-block'), {
+            'identifier': '9999888877',
+            'identifier_type': 'PHONE',
+            'reason': 'Excessive abusive requests'
+        }, format='json')
+        self.assertEqual(block_res.status_code, status.HTTP_201_CREATED)
+
+        # Attempt to send OTP to blocked number -> must return 403 Forbidden
+        self.client.force_authenticate(user=None)
+        send_res = self.client.post(reverse('auth-otp-send'), {
+            'identifier': '9999888877'
+        }, format='json')
+        self.assertEqual(send_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('Access Denied', send_res.data['error'])
+
+        # Unblock identifier by admin
+        self.client.force_authenticate(user=self.admin_user)
+        unblock_res = self.client.post(reverse('admin-security-unblock'), {
+            'identifier': '9999888877'
+        }, format='json')
+        self.assertEqual(unblock_res.status_code, status.HTTP_200_OK)
+
+        # Now OTP can be requested
+        self.client.force_authenticate(user=None)
+        send_res2 = self.client.post(reverse('auth-otp-send'), {
+            'identifier': '9999888877'
+        }, format='json')
+        self.assertEqual(send_res2.status_code, status.HTTP_200_OK)
+
+    def test_toggle_spammer_status(self):
+        user_id = self.patient_user.id
+
+        # Admin toggles spammer status
+        self.client.force_authenticate(user=self.admin_user)
+        toggle_res = self.client.post(reverse('admin-user-detail', kwargs={'user_id': user_id}), {
+            'action': 'toggle_spammer',
+            'notes': 'Suspicious bot activity detected'
+        }, format='json')
+        self.assertEqual(toggle_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(toggle_res.data['user']['is_flagged_spammer'])
+
+        # Flagged spammer account cannot login
+        self.client.force_authenticate(user=None)
+        login_res = self.client.post(reverse('auth-otp-send'), {
+            'identifier': 'test_patient'
+        }, format='json')
+        self.assertEqual(login_res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_login_endpoint(self):
+        url = reverse('admin-auth-login')
+
+        # 1. Patient attempt -> 403 Forbidden
+        res_patient = self.client.post(url, {'username': 'test_patient', 'password': 'Password123!'}, format='json')
+        self.assertEqual(res_patient.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Doctor attempt -> 403 Forbidden
+        res_doc = self.client.post(url, {'username': 'test_doctor', 'password': 'Password123!'}, format='json')
+        self.assertEqual(res_doc.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Admin attempt -> 200 OK with admin tokens
+        res_admin = self.client.post(url, {'username': 'test_admin', 'password': 'AdminPassword123!'}, format='json')
+        self.assertEqual(res_admin.status_code, status.HTTP_200_OK)
+        self.assertIn('tokens', res_admin.data)
+        self.assertEqual(res_admin.data['user']['role'], User.Role.ADMIN)
+
+
 

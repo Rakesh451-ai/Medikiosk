@@ -4,7 +4,7 @@ import {
   Camera, Activity, Bot, FileText, ArrowRight, ShieldCheck,
   Heart, Sparkles, AlertTriangle, Pill, CheckCircle2, ChevronRight,
   Droplet, Thermometer, Smile, HeartPulse, HelpCircle, Shield,
-  User, KeyRound, LogOut
+  User, KeyRound, LogOut, Stethoscope, ShieldAlert
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -24,9 +24,49 @@ export function HomePage({
 }) {
   const [selectedMood, setSelectedMood] = useState(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
-  const [inputPatientId, setInputPatientId] = useState('MK-78294');
-  const [inputPin, setInputPin] = useState('1234');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [editAge, setEditAge] = useState('');
+  const [savingAge, setSavingAge] = useState(false);
+  const [ageMessage, setAgeMessage] = useState('');
+
+  const handleSaveAge = async (e) => {
+    if (e) e.preventDefault();
+    const parsed = parseInt(editAge, 10);
+    if (isNaN(parsed) || parsed <= 0 || parsed > 125) {
+      setAgeMessage('Please enter a valid age (1-120)');
+      return;
+    }
+    setSavingAge(true);
+    setAgeMessage('');
+    try {
+      await api.updatePatientProfile({
+        patient_id: patient?.patient_id,
+        age: parsed
+      });
+
+      try {
+        const stored = localStorage.getItem('medikiosk_user');
+        if (stored) {
+          const u = JSON.parse(stored);
+          if (u.patient_profile) u.patient_profile.age = parsed;
+          if (u.profile) u.profile.age = parsed;
+          localStorage.setItem('medikiosk_user', JSON.stringify(u));
+        }
+      } catch (err) {}
+
+      if (onPatientUpdated) {
+        onPatientUpdated({
+          ...(patient || {}),
+          age: parsed
+        });
+      }
+      setAgeMessage('Age updated successfully!');
+      setTimeout(() => setAgeMessage(''), 3000);
+    } catch (err) {
+      setAgeMessage(err.message || 'Failed to update age');
+    } finally {
+      setSavingAge(false);
+    }
+  };
 
   // Dynamic time-based friendly greeting
   const getGreeting = () => {
@@ -34,45 +74,6 @@ export function HomePage({
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
-  };
-
-  const handleQuickPatient = (name, id, pin, blood, age) => {
-    setInputPatientId(id);
-    setInputPin(pin);
-    if (onPatientUpdated) {
-      onPatientUpdated({
-        patient_id: id,
-        name: name,
-        age: age,
-        blood_group: blood,
-        allergies: ['Penicillin'],
-        latest_vitals: {
-          heart_rate: 72,
-          bp_systolic: 120,
-          bp_diastolic: 80,
-          spo2: 98,
-          temperature: 98.6,
-          glucose: 95
-        }
-      });
-    }
-    setShowAccountModal(false);
-  };
-
-  const handleLoginSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoggingIn(true);
-    try {
-      const res = await api.login(inputPatientId, inputPin);
-      if (onPatientUpdated) {
-        onPatientUpdated(res.patient);
-      }
-      setShowAccountModal(false);
-    } catch {
-      setShowAccountModal(false);
-    } finally {
-      setIsLoggingIn(false);
-    }
   };
 
 
@@ -115,29 +116,42 @@ export function HomePage({
             <span className="inline sm:hidden font-bold">🌿 MediKiosk Portal</span>
           </div>
 
-          {/* Right: User Account Icon & Profile Button */}
-          <button
-            type="button"
-            onClick={() => setShowAccountModal(true)}
-            className="flex items-center gap-2 sm:gap-2.5 py-1 px-2.5 sm:py-1.5 sm:px-3.5 rounded-full bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-400/40 text-white transition-all duration-200 shadow-sm cursor-pointer group hover:scale-[1.03] active:scale-95 shrink-0"
-            title="My Health Account"
-            aria-label="User Account Profile"
-          >
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-300 text-[#0f2e1f] font-black text-xs sm:text-sm flex items-center justify-center shadow-xs group-hover:ring-2 group-hover:ring-emerald-300 overflow-hidden">
-              <img src={accountCircleIcon} alt="Account" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
-            </div>
-            <div className="text-left hidden xs:block">
-              <div className="text-xs font-black text-white flex items-center gap-1.5 leading-tight">
-                <span>{patient?.name || 'Sarah Jenkins'}</span>
-                <span className="text-[10px] px-1.5 py-0.2 bg-emerald-700/80 text-emerald-200 rounded-md font-mono">
-                  {patient?.blood_group || 'A+'}
-                </span>
+          {/* Right: Quick Doctor Portal Switcher + User Account */}
+          <div className="flex items-center gap-2">
+            <Link
+              to="/doctor"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white text-xs font-bold border border-slate-700/60 shadow-xs transition"
+              title="Clinical Doctor Portal"
+            >
+              <Stethoscope className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Doctor Portal</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => setShowAccountModal(true)}
+              className="flex items-center gap-2 sm:gap-2.5 py-1 px-2.5 sm:py-1.5 sm:px-3.5 rounded-full bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-400/40 text-white transition-all duration-200 shadow-sm cursor-pointer group hover:scale-[1.03] active:scale-95 shrink-0"
+              title="My Health Account"
+              aria-label="User Account Profile"
+            >
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-300 text-[#0f2e1f] font-black text-xs sm:text-sm flex items-center justify-center shadow-xs group-hover:ring-2 group-hover:ring-emerald-300 overflow-hidden">
+                <img src={accountCircleIcon} alt="Account" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
               </div>
-              <div className="text-[10px] text-emerald-300/80 font-mono mt-0.5">
-                ID: {patient?.patient_id || 'MK-78294'}
+              <div className="text-left hidden xs:block">
+                <div className="text-xs font-black text-white flex items-center gap-1.5 leading-tight">
+                  <span>{patient?.name && patient.name !== 'Guest Patient' ? patient.name : 'Sign In'}</span>
+                  {patient?.blood_group && (
+                    <span className="text-[10px] px-1.5 py-0.2 bg-emerald-700/80 text-emerald-200 rounded-md font-mono">
+                      {patient.blood_group}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-emerald-300/80 font-mono mt-0.5">
+                  {patient?.mock_aadhaar_id ? `Aadhaar: •••• ${patient.mock_aadhaar_id.slice(-4)}` : (patient?.patient_id && patient.patient_id !== 'Patient' ? `ID: ${patient.patient_id}` : 'Patient Portal')}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          </div>
 
         </div>
       </header>
@@ -150,7 +164,7 @@ export function HomePage({
 
           <div className="space-y-4 max-w-2xl text-center lg:text-left">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0f2e1f] tracking-tight leading-[1.15]">
-              {getGreeting()}, <span className="text-emerald-800">{patient?.name?.split(' ')[0] || 'Sarah'}</span>.
+              {getGreeting()}, <span className="text-emerald-800">{patient?.name && patient.name !== 'Guest Patient' ? patient.name.split(' ')[0] : 'Patient'}</span>.
             </h1>
 
             <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-xl mx-auto lg:mx-0">
@@ -229,62 +243,87 @@ export function HomePage({
             <div className="flex items-center justify-between pb-3 border-b border-emerald-900/10">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-[#184a32] text-white font-black text-lg flex items-center justify-center shadow-xs">
-                  {patient?.name?.[0] || 'S'}
+                  {patient?.name && patient.name !== 'Guest Patient' ? patient.name[0] : 'P'}
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-base text-[#0f2e1f]">{patient?.name || 'Sarah Jenkins'}</h4>
-                  <p className="text-xs text-slate-500 font-mono">ID: {patient?.patient_id || 'MK-78294'}</p>
+                  <h4 className="font-extrabold text-base text-[#0f2e1f]">
+                    {patient?.name && patient.name !== 'Guest Patient' ? patient.name : 'New Patient'}
+                  </h4>
+                  <p className="text-xs text-slate-500 font-mono">
+                    {patient?.patient_id && patient.patient_id !== 'Patient' ? `ID: ${patient.patient_id}` : 'EHR Profile'}
+                  </p>
                 </div>
               </div>
-              <Badge variant="success" className="px-3 py-1 bg-[#184a32] text-white border-none shadow-xs">
-                {patient?.blood_group || 'A+'}
-              </Badge>
+              {patient?.blood_group ? (
+                <Badge variant="success" className="px-3 py-1 bg-[#184a32] text-white border-none shadow-xs">
+                  {patient.blood_group}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="px-2.5 py-1 text-slate-600 border-emerald-300 text-[10px]">
+                  {patient?.has_scanned_documents ? 'Blood: —' : 'Unverified'}
+                </Badge>
+              )}
             </div>
 
             {/* Documented Allergy Box */}
-            <div className="flex items-center gap-2.5 text-xs text-amber-900 bg-amber-50/90 border border-amber-200/90 p-2.5 rounded-2xl font-semibold">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Known Allergy: <strong className="font-black">{patient?.allergies?.join(', ') || 'Penicillin'}</strong></span>
-            </div>
-
-            {/* Live Vitals Mini-Grid with Comfort Indicators */}
-            <div className="grid grid-cols-2 gap-2.5 text-xs">
-              <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
-                <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
-                  <span>Pulse (Heart)</span>
-                  <Heart className="w-3.5 h-3.5 text-rose-500" />
-                </div>
-                <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
-                  {vitals?.heart_rate || 74} <small className="text-[10px] font-normal text-slate-500">bpm</small>
-                </span>
-                <span className="text-[10px] text-emerald-700 font-bold block mt-1">
-                  ● Normal (60–100)
-                </span>
+            {patient?.allergies && patient.allergies.length > 0 ? (
+              <div className="flex items-center gap-2.5 text-xs text-amber-900 bg-amber-50/90 border border-amber-200/90 p-2.5 rounded-2xl font-semibold">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Known Allergy: <strong className="font-black">{patient.allergies.join(', ')}</strong></span>
               </div>
-
-              <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
-                <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
-                  <span>Blood Pressure</span>
-                  <Activity className="w-3.5 h-3.5 text-teal-600" />
-                </div>
-                <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
-                  {vitals?.bp_systolic || 118}/{vitals?.bp_diastolic || 78}
-                </span>
-                <span className="text-[10px] text-emerald-700 font-bold block mt-1">
-                  ● Healthy Range
-                </span>
+            ) : (
+              <div className="flex items-center gap-2.5 text-xs text-emerald-900 bg-emerald-50/90 border border-emerald-200/90 p-2.5 rounded-2xl font-semibold">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{patient?.has_scanned_documents ? 'No known drug allergies reported' : 'Allergies: Scan slip to verify'}</span>
               </div>
-            </div>
+            )}
+
+            {/* Live Vitals Mini-Grid or Scan Prompt */}
+            {vitals && (vitals.heart_rate || vitals.bp_systolic || vitals.blood_pressure) ? (
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                    <span>Pulse (Heart)</span>
+                    <Heart className="w-3.5 h-3.5 text-rose-500" />
+                  </div>
+                  <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                    {vitals.heart_rate || '--'} <small className="text-[10px] font-normal text-slate-500">bpm</small>
+                  </span>
+                  <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                    ● Normal Range
+                  </span>
+                </div>
+
+                <div className="bg-white/90 p-3 rounded-2xl border border-emerald-900/10 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-500 font-bold mb-1">
+                    <span>Blood Pressure</span>
+                    <Activity className="w-3.5 h-3.5 text-teal-600" />
+                  </div>
+                  <span className="font-black text-lg text-[#0f2e1f] block leading-tight">
+                    {vitals.blood_pressure || `${vitals.bp_systolic || 120}/${vitals.bp_diastolic || 80}`}
+                  </span>
+                  <span className="text-[10px] text-emerald-700 font-bold block mt-1">
+                    ● Healthy Range
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-emerald-100/60 rounded-2xl border border-emerald-300 text-center space-y-1">
+                <HeartPulse className="w-5 h-5 text-emerald-700 mx-auto" />
+                <p className="text-xs font-bold text-[#0f2e1f]">No Vitals Recorded Yet</p>
+                <p className="text-[11px] text-slate-600">Scan a prescription slip or doctor note to extract your health records.</p>
+              </div>
+            )}
 
             <Button
-              to="/summary"
+              to={patient?.has_scanned_documents ? "/summary" : "/scanner"}
               variant="outline"
               size="sm"
               fullWidth
-              icon={HeartPulse}
+              icon={patient?.has_scanned_documents ? HeartPulse : Camera}
               className="bg-white hover:bg-emerald-50 text-[#184a32] border-emerald-900/15"
             >
-              See Full Health Details
+              {patient?.has_scanned_documents ? "See Full Health Details" : "Scan Medical Paper"}
             </Button>
           </div>
 
@@ -454,7 +493,7 @@ export function HomePage({
             </div>
 
             <div className="space-y-2">
-              {documents.slice(0, 3).map((d) => (
+              {(Array.isArray(documents) ? documents : []).slice(0, 3).map((d) => (
                 <div key={d.id} className="p-3 bg-teal-50/40 rounded-2xl border border-teal-900/5 flex items-center justify-between text-xs">
                   <div className="truncate pr-2">
                     <span className="font-extrabold text-slate-900 text-xs sm:text-sm truncate block">{d.title}</span>
@@ -486,98 +525,114 @@ export function HomePage({
           <div className="p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-[#184a32] text-white font-black text-xl flex items-center justify-center shadow-xs">
-                {patient?.name?.[0] || 'S'}
+                {patient?.name && patient.name !== 'Guest Patient' ? patient.name[0] : 'P'}
               </div>
               <div>
                 <h4 className="font-extrabold text-sm sm:text-base text-[#0f2e1f]">
-                  {patient?.name || 'Sarah Jenkins'}
+                  {patient?.name && patient.name !== 'Guest Patient' ? patient.name : 'Not Signed In'}
                 </h4>
                 <p className="text-xs text-slate-600 font-mono">
-                  Card ID: <strong className="text-slate-900">{patient?.patient_id || 'MK-78294'}</strong>
+                  {patient?.patient_id && patient.patient_id !== 'Patient' ? `Card ID: ${patient.patient_id}` : 'Guest Profile'}
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  {patient?.gender || 'Female'}, {patient?.age || 38} years old
+                <p className="text-[11px] text-slate-600 font-semibold">
+                  {patient?.gender ? `${patient.gender} • ` : ''}
+                  {patient?.age ? `${patient.age} years old` : 'Age: Not documented'}
                 </p>
               </div>
             </div>
-            <Badge variant="success" className="px-3 py-1 text-xs">
-              {patient?.blood_group || 'A+'}
-            </Badge>
+            {patient?.blood_group ? (
+              <Badge variant="success" className="px-3 py-1 text-xs">
+                {patient.blood_group}
+              </Badge>
+            ) : null}
+          </div>
+
+          {/* Age Configuration Section */}
+          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-700 font-extrabold uppercase tracking-wider">Patient Age</span>
+              <span className="text-xs font-bold text-emerald-800">
+                {patient?.age ? `${patient.age} years old` : 'Not documented'}
+              </span>
+            </div>
+            <form onSubmit={handleSaveAge} className="flex items-center gap-2">
+              <input
+                type="number"
+                min="1"
+                max="120"
+                placeholder={patient?.age ? `Update age (current: ${patient.age})` : "Enter your age (e.g. 28)"}
+                value={editAge}
+                onChange={(e) => setEditAge(e.target.value)}
+                className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                type="submit"
+                disabled={savingAge || !editAge}
+                className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer shadow-2xs transition"
+              >
+                {savingAge ? 'Saving...' : 'Save Age'}
+              </button>
+            </form>
+            {ageMessage && (
+              <p className={`text-[11px] font-bold ${ageMessage.includes('successfully') ? 'text-emerald-700' : 'text-rose-600'}`}>
+                {ageMessage}
+              </p>
+            )}
           </div>
 
           {/* Clinical Chart Details */}
           <div className="grid grid-cols-2 gap-2.5">
             <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
               <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wider">Primary Doctor</span>
-              <p className="font-bold text-gray-900 mt-0.5">{patient?.primary_doctor || 'Dr. Michael Chen, MD'}</p>
+              <p className="font-bold text-gray-900 mt-0.5">{patient?.primary_doctor || (patient?.has_scanned_documents ? 'Not specified' : 'Scan slip to update')}</p>
             </div>
             <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
               <span className="text-[10px] text-gray-500 font-bold block uppercase tracking-wider">Emergency Contact</span>
-              <p className="font-bold text-gray-900 mt-0.5">{patient?.emergency_contact || '+1 (555) 234-8901'}</p>
+              <p className="font-bold text-gray-900 mt-0.5">{patient?.emergency_contact || patient?.phone || 'Not provided'}</p>
             </div>
           </div>
 
           {/* Known Allergies Alert */}
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 flex items-center gap-2 font-medium">
-            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>Documented Allergy: <strong className="font-black">{patient?.allergies?.join(', ') || 'Penicillin'}</strong></span>
-          </div>
-
-          {/* 1-Click Fast Profile Switch */}
-          <div className="pt-2 border-t border-gray-100">
-            <span className="text-xs font-bold text-gray-700 block mb-2">⚡ 1-Click Quick Demo Switch:</span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickPatient('Sarah Jenkins', 'MK-78294', '1234', 'A+', 38)}
-                className="p-2.5 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-200 text-left transition cursor-pointer shadow-2xs"
-              >
-                <p className="font-bold text-xs text-[#0f2e1f]">Sarah Jenkins</p>
-                <p className="text-[10px] text-gray-500">MK-78294 • Adult (A+)</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickPatient('Robert Davis', 'MK-91042', '5678', 'O+', 68)}
-                className="p-2.5 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-200 text-left transition cursor-pointer shadow-2xs"
-              >
-                <p className="font-bold text-xs text-[#0f2e1f]">Robert Davis</p>
-                <p className="text-[10px] text-gray-500">MK-91042 • Senior (O+)</p>
-              </button>
+          {patient?.allergies && patient.allergies.length > 0 ? (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Documented Allergy: <strong className="font-black">{patient.allergies.join(', ') || 'None'}</strong></span>
             </div>
-          </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2 font-medium">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{patient?.has_scanned_documents ? 'No known drug allergies reported' : 'Allergies: Scan prescription to extract'}</span>
+            </div>
+          )}
 
-          {/* Manual Card Check-In Form */}
-          <form onSubmit={handleLoginSubmit} className="space-y-3 pt-2 border-t border-gray-100">
-            <Input
-              label="Card / Patient ID"
-              icon={User}
-              type="text"
-              value={inputPatientId}
-              onChange={(e) => setInputPatientId(e.target.value)}
-              placeholder="e.g. MK-78294"
-              required
-            />
-            <Input
-              label="4-Digit Security PIN"
-              icon={KeyRound}
-              type="password"
-              value={inputPin}
-              onChange={(e) => setInputPin(e.target.value)}
-              placeholder="1234"
-              required
-            />
-            <Button
-              type="submit"
-              variant="primary"
-              fullWidth
-              disabled={isLoggingIn}
-              className="py-2.5"
-              icon={ArrowRight}
-              iconPosition="right"
+          {/* Direct Government ID & Mobile Login Link */}
+          <div className="pt-2 border-t border-gray-100 space-y-2">
+            <Link
+              to="/login"
+              onClick={() => setShowAccountModal(false)}
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
             >
-              {isLoggingIn ? 'Checking In...' : 'Sign In To Patient Account'}
-            </Button>
-          </form>
+              <ShieldCheck className="w-4 h-4" />
+              <span>{patient?.name && patient.name !== 'Guest Patient' ? 'Switch Patient / Sign In' : 'Sign In with Aadhaar, ABHA or Mobile'}</span>
+            </Link>
+
+            {patient?.name && patient.name !== 'Guest Patient' && (
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem('medikiosk_token');
+                  localStorage.removeItem('medikiosk_refresh');
+                  localStorage.removeItem('medikiosk_user');
+                  setShowAccountModal(false);
+                  window.location.href = '/login';
+                }}
+                className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 font-bold text-xs flex items-center justify-center gap-2 transition border border-slate-200 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-500" />
+                <span>Sign Out</span>
+              </button>
+            )}
+          </div>
 
         </div>
       </Modal>

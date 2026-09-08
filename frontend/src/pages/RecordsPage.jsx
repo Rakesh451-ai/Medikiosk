@@ -12,7 +12,8 @@ export function RecordsPage({ documents = [] }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDoc, setSelectedDoc] = useState(null);
 
-  const filteredDocs = documents.filter((doc) => {
+  const safeDocs = Array.isArray(documents) ? documents : [];
+  const filteredDocs = safeDocs.filter((doc) => {
     const matchesFilter = filter === 'All' || doc.doc_type?.toLowerCase().includes(filter.toLowerCase());
     const matchesSearch = !searchQuery || 
       doc.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||

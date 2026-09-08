@@ -2,13 +2,18 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
+from django.contrib.auth import get_user_model
 from consent.models import ConsentRecord
 from consent.abdm_service import MockABDMService
 from consent.tasks import purge_temporary_session_data_task
 
+User = get_user_model()
+
 class ModuleDConsentEngineTest(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.user = User.objects.create_user(username='MK-78294', password='password123')
+        self.client.force_authenticate(user=self.user)
 
     def test_grant_granular_consent(self):
         url = reverse('consent-grant')

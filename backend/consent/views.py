@@ -16,10 +16,11 @@ class GrantConsentView(APIView):
     Module D: Record granular, per-purpose patient consent.
     Purposes: 'share_hospital', 'store_documents', 'link_abha', 'ai_transcription'
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        patient_id = request.data.get('patient_id', 'MK-78294')
+        profile = getattr(request.user, 'patient_profile', None)
+        patient_id = (profile.mock_abha_id if profile else None) or request.user.username
         purposes = request.data.get('purposes', [ConsentRecord.Purpose.SHARE_HOSPITAL])
         
         # If single purpose string provided
@@ -29,6 +30,7 @@ class GrantConsentView(APIView):
         created_records = []
         for p in purposes:
             rec, _ = ConsentRecord.objects.update_or_create(
+                patient=request.user,
                 patient_identifier=patient_id,
                 purpose=p,
                 defaults={
@@ -50,9 +52,20 @@ class PatientConsentRecordsView(APIView):
     """
     Module D: Fetch all active/revoked consent records for a patient.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, patient_id):
+        if getattr(request.user, 'is_patient', False):
+            profile = getattr(request.user, 'patient_profile', None)
+            allowed = {request.user.username}
+            if profile:
+                allowed.update([profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone])
+            if patient_id not in allowed:
+                return Response(
+                    {"error": "Forbidden: You cannot access another patient's consent records."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         records = ConsentRecord.objects.filter(patient_identifier=patient_id)
         serializer = ConsentRecordSerializer(records, many=True)
         return Response({
@@ -66,10 +79,15 @@ class RevokeConsentView(APIView):
     """
     Module D: Revoke an existing consent record.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, consent_id):
         rec = get_object_or_404(ConsentRecord, consent_id=consent_id)
+        if rec.patient and rec.patient != request.user and not getattr(request.user, 'is_clinical_staff', False):
+            return Response(
+                {"error": "Forbidden: You cannot revoke another patient's consent."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         rec.granted = False
         rec.revoked_at = timezone.now()
         rec.save(update_fields=['granted', 'revoked_at'])

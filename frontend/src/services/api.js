@@ -1,420 +1,560 @@
 const API_BASE = '/api';
 
+function getAuthHeaders(extraHeaders = {}, isJson = true) {
+  const token = localStorage.getItem('medikiosk_token');
+  const headers = { ...extraHeaders };
+  if (isJson && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`;
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (netErr) {
+    throw new Error(`Network connection error: ${netErr.message}`);
+  }
+
+  if (res.status === 401) {
+    localStorage.removeItem('medikiosk_token');
+    localStorage.removeItem('medikiosk_user');
+    window.dispatchEvent(new Event('medikiosk:unauthorized'));
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.detail || 'Session expired. Please log in again.');
+  }
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.detail || errorData.message || `Request failed (${res.status})`);
+  }
+
+  return await res.json();
+}
+
 export const api = {
-  // Health check
+  // 1. Health check
   async getHealth() {
     try {
       const res = await fetch(`${API_BASE}/health/`);
       if (res.ok) return await res.json();
     } catch (e) {
-      console.warn('API health check offline, using fallback:', e);
+      console.warn('API health check offline:', e);
     }
-    return { status: 'online', mode: 'offline-fallback' };
+    return { status: 'offline' };
   },
 
-  // 1. Auth & Accounts
-  login: async (identifierOrUser = 'MK-78294', pinOrPassword = '1234') => {
-    try {
-      const isPatientId = typeof identifierOrUser === 'string' && (identifierOrUser.startsWith('MK-') || !isNaN(identifierOrUser));
-      const payload = isPatientId
-        ? { patient_id: identifierOrUser, pin: pinOrPassword }
-        : { username: identifierOrUser, password: pinOrPassword };
-
-      const res = await fetch(`${API_BASE}/auth/login/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) return await res.json();
-    } catch (err) {
-      console.warn('API login error, using fallback:', err);
-    }
-    return {
-      token: 'mock-jwt-token-2026',
-      user: {
-        id: 1,
-        name: 'Sarah Jenkins',
-        patient_id: identifierOrUser || 'MK-78294',
-        role: 'PATIENT'
-      }
+  // 2. Auth & Accounts
+  login: async (identifier, password) => {
+    const payload = {
+      identifier,
+      auth_mode: 'password',
+      password,
     };
-  },
+    const data = await request('/auth/unified-login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
 
-  async signup(data) {
-    try {
-      const res = await fetch(`${API_BASE}/auth/signup/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API signup fallback:', e);
+    if (data?.tokens?.access) {
+      localStorage.setItem('medikiosk_token', data.tokens.access);
+      if (data.tokens.refresh) localStorage.setItem('medikiosk_refresh', data.tokens.refresh);
+      if (data.user) localStorage.setItem('medikiosk_user', JSON.stringify(data.user));
     }
-    return { status: 'success', data };
+    return data;
   },
 
   registerPatient: async (patientData) => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/register/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patientData),
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API register fallback:', e);
+    const data = await request('/auth/register/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patientData),
+    });
+
+    if (data?.tokens?.access) {
+      localStorage.setItem('medikiosk_token', data.tokens.access);
+      if (data.tokens.refresh) localStorage.setItem('medikiosk_refresh', data.tokens.refresh);
+      if (data.user) localStorage.setItem('medikiosk_user', JSON.stringify(data.user));
     }
-    return { status: 'success', patient: patientData };
+    return data;
   },
 
-  getCurrentUser: async (token) => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/me/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API getCurrentUser fallback:', e);
-    }
-    return { username: 'dr_sharma', role: 'DOCTOR' };
+  getCurrentUser: async () => {
+    const token = localStorage.getItem('medikiosk_token');
+    if (!token) return null;
+    return await request('/auth/me/', {
+      headers: getAuthHeaders(),
+    });
   },
 
-  // 2. Patient details & Vitals
-  getPatient: async (patientId = 'MK-78294') => {
+  lookupPatient: async (identifier) => {
     try {
-      const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-      const res = await fetch(`${API_BASE}/patient/${query}`);
-      if (res.ok) return await res.json();
+      return await request(`/auth/lookup/?identifier=${encodeURIComponent(identifier)}`);
     } catch (e) {
-      console.warn('API getPatient fallback:', e);
+      return { exists: false, identifier_type: 'auto' };
     }
-    return {
-      patient_id: patientId || 'MK-78294',
-      name: 'Sarah Jenkins',
-      gender: 'Female',
-      age: 38,
-      blood_group: 'A+',
-      allergies: ['Penicillin'],
-      primary_doctor: 'Dr. Michael Chen, MD (Cardiology)',
-      emergency_contact: '+1 (555) 234-8901',
-      latest_vitals: {
-        heart_rate: 72,
-        blood_pressure: '120/80',
-        temperature: 98.6,
-        oxygen_saturation: 98,
-        status: 'Normal'
-      }
+  },
+
+  sendOtp: async (identifier) => {
+    return await request('/auth/otp/send/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier }),
+    });
+  },
+
+  verifyOtp: async (identifier, otp, name = '', preferredLanguage = 'en', age = null) => {
+    const payload = {
+      identifier,
+      otp,
+      name,
+      preferred_language: preferredLanguage,
     };
+    if (age !== null && age !== undefined && age !== '') {
+      payload.age = parseInt(age, 10);
+    }
+    const data = await request('/auth/otp/verify/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (data?.tokens?.access) {
+      localStorage.setItem('medikiosk_token', data.tokens.access);
+      if (data.tokens.refresh) localStorage.setItem('medikiosk_refresh', data.tokens.refresh);
+      if (data.user) localStorage.setItem('medikiosk_user', JSON.stringify(data.user));
+    }
+    return data;
+  },
+
+  unifiedLogin: async ({ identifier, authMode = 'password', otp = '', password = '', name = '', preferredLanguage = 'en', age = null }) => {
+    const payload = {
+      identifier,
+      auth_mode: authMode,
+      otp,
+      password,
+      name,
+      preferred_language: preferredLanguage,
+    };
+    if (age !== null && age !== undefined && age !== '') {
+      payload.age = parseInt(age, 10);
+    }
+    const data = await request('/auth/unified-login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (data?.tokens?.access) {
+      localStorage.setItem('medikiosk_token', data.tokens.access);
+      if (data.tokens.refresh) localStorage.setItem('medikiosk_refresh', data.tokens.refresh);
+      if (data.user) localStorage.setItem('medikiosk_user', JSON.stringify(data.user));
+    }
+    return data;
+  },
+
+  logout: () => {
+    localStorage.removeItem('medikiosk_token');
+    localStorage.removeItem('medikiosk_refresh');
+    localStorage.removeItem('medikiosk_user');
+    window.dispatchEvent(new Event('medikiosk:logout'));
+  },
+
+  updatePatientProfile: async (profileData) => {
+    return await request('/patient/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(profileData),
+    });
+  },
+
+  // 3. Patient Details & Vitals
+  getPatient: async (patientId = '') => {
+    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    return await request(`/patient/${query}`, {
+      headers: getAuthHeaders(),
+    });
+  },
+
+  getVitals: async (patientId = '') => {
+    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    return await request(`/patient/vitals/${query}`, {
+      headers: getAuthHeaders(),
+    });
+  },
+
+  getVitalsHistory: async (patientId = '') => {
+    const base = patientId ? `?patient_id=${encodeURIComponent(patientId)}&history=true` : '?history=true';
+    return await request(`/patient/vitals/${base}`, {
+      headers: getAuthHeaders(),
+    });
+  },
+
+  recordVitals: async (vitalsData) => {
+    return await request('/patient/vitals/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(vitalsData),
+    });
   },
 
   updateVitals: async (vitalsData) => {
-    try {
-      const res = await fetch(`${API_BASE}/patient/vitals/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(vitalsData),
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API updateVitals fallback:', e);
-    }
-    return { status: 'success', data: vitalsData };
+    return await api.recordVitals(vitalsData);
   },
 
-  // 3. Medications
-  getMedications: async (patientId = 'MK-78294') => {
-    try {
-      const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-      const res = await fetch(`${API_BASE}/medications/${query}`);
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API getMedications fallback:', e);
-    }
-    return [
-      { id: 1, name: 'Amoxicillin', dosage: '500mg', frequency: '3 times daily', timing: 'After meals', status: 'active', warning: 'Potential allergy conflict' },
-      { id: 2, name: 'Lisinopril', dosage: '10mg', frequency: 'Once daily', timing: 'Morning', status: 'active' },
-      { id: 3, name: 'Atorvastatin', dosage: '20mg', frequency: 'Once daily', timing: 'Bedtime', status: 'active' },
-      { id: 4, name: 'Metformin', dosage: '850mg', frequency: 'Twice daily', timing: 'With meals', status: 'active' }
-    ];
+  // 4. Medications
+  getMedications: async (patientId = '') => {
+    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const res = await request(`/medications/${query}`, {
+      headers: getAuthHeaders(),
+    });
+    return Array.isArray(res) ? res : [];
+  },
+
+  markMedicationTaken: async (medId) => {
+    return await request(`/medications/${medId}/taken/`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
   },
 
   toggleMedication: async (medId) => {
-    try {
-      const res = await fetch(`${API_BASE}/medications/${medId}/toggle/`, {
-        method: 'POST',
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {}
-    return { status: 'toggled', id: medId };
+    return await request(`/medications/${medId}/toggle/`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
   },
 
-  // 4. Documents & OCR Pipeline
-  getDocuments: async (patientId = 'MK-78294') => {
-    try {
-      const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-      const res = await fetch(`${API_BASE}/documents/${query}`);
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API getDocuments fallback:', e);
-    }
-    return [
-      {
-        id: 1,
-        title: 'Chest X-Ray Digital Report',
-        document_type: 'Radiology',
-        created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-        ocr_extracted_data: { diagnosis: 'Clear bilateral lung fields. No active infiltration.', doctor: 'Dr. Michael Chen' },
-        status: 'Verified'
-      },
-      {
-        id: 2,
-        title: 'Complete Blood Count (CBC) Panel',
-        document_type: 'Lab Report',
-        created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
-        ocr_extracted_data: { wbc: '6.8 x10^3/uL', rbc: '4.7 x10^6/uL', hemoglobin: '14.2 g/dL' },
-        status: 'Verified'
-      }
-    ];
+  // 5. Documents & Optical OCR Pipeline
+  getDocuments: async (patientId = '') => {
+    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const data = await request(`/documents/${query}`, {
+      headers: getAuthHeaders(),
+    });
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.documents)) return data.documents;
+    return [];
+  },
+
+  getDocument: async (docId) => {
+    return await request(`/documents/${docId}/`, {
+      headers: getAuthHeaders(),
+    });
   },
 
   scanDocument: async (docData) => {
-    try {
-      let body;
-      let headers = {};
-      if (docData instanceof FormData) {
-        body = docData;
-      } else {
-        headers['Content-Type'] = 'application/json';
-        body = JSON.stringify(docData);
-      }
-      const res = await fetch(`${API_BASE}/documents/scan/`, {
-        method: 'POST',
-        headers,
-        body,
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API scanDocument fallback:', e);
-    }
-    return {
-      id: Date.now(),
-      title: docData?.title || 'Scanned Clinical Record',
-      status: 'Verified',
-      created_at: new Date().toISOString(),
-      ocr_extracted_data: {
-        summary: 'Digitized successfully via MediKiosk OCR Engine.',
-        timestamp: new Date().toLocaleDateString()
-      }
-    };
-  },
+    let body;
+    let headers = getAuthHeaders({}, false); // do not set Content-Type for FormData
 
-  uploadDocument: async (formData) => {
-    try {
-      const res = await fetch(`${API_BASE}/documents/upload/`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API uploadDocument fallback:', e);
-    }
-    return {
-      status: 'queued',
-      document_id: 'DOC-SCAN-8891',
-      message: 'Prescription scanned & sent to Celery OCR pipeline.'
-    };
-  },
-
-  // 5. AI Agent Chat
-  getChatHistory: async (patientId = 'MK-78294') => {
-    try {
-      const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-      const res = await fetch(`${API_BASE}/agent/chat/${query}`);
-      if (res.ok) return await res.json();
-    } catch (e) {}
-    return [
-      {
-        id: 'init',
-        sender: 'agent',
-        text: "Hello Sarah! I am your MediKiosk Health Assistant. I have your health numbers and medicines ready.\n\nHow can I help you today? You can tap any of the questions below, or tap the microphone to speak with me!",
-        urgency: 'normal',
-        time: '10:00 AM',
-        quick_replies: [
-          "💊 When should I take my medicines?",
-          "🩺 Are my vitals normal today?",
-          "⚠️ Are my medicines safe with my allergies?",
-          "🏥 How do I see a doctor or nurse?"
-        ]
-      }
-    ];
-  },
-
-  sendChatMessage: async (text, patientId = 'MK-78294') => {
-    try {
-      const res = await fetch(`${API_BASE}/agent/chat/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, patient_id: patientId }),
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {}
-
-    let responseText = `Thank you for asking about "${text}". Based on your health records, your recent vitals are stable.`;
-    let urgency = 'normal';
-    if (/medic|pill|dose|augmentin|penicillin|amoxicillin/i.test(text)) {
-      responseText = "⚠️ IMPORTANT MEDICATION ALERT: You have a documented allergy to Penicillin. Please inform your doctor before taking any antibiotic!";
-      urgency = 'alert';
-    } else if (/vital|heart|bp|pressure|pulse/i.test(text)) {
-      responseText = "Your heart rate is 72 bpm and blood pressure is 120/80 mmHg. Both are in healthy, normal ranges today.";
-    } else if (/doctor|nurse|appoint|see/i.test(text)) {
-      responseText = "Dr. Michael Chen is available in Room 3. Your check-in is complete and you will be called shortly.";
-    }
-    return {
-      id: Date.now(),
-      sender: 'agent',
-      text: responseText,
-      urgency,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-  },
-
-  // 6. Conversational History Intake Session (Module A)
-  createIntakeSession: async ({ patientId = 'MK-78294', department = 'General Medicine', language = 'en', isAyush = false } = {}) => {
-    try {
-      const res = await fetch(`${API_BASE}/intake/sessions/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patient_id: patientId,
-          department,
-          language,
-          is_ayush_enabled: isAyush,
-        }),
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('API error, falling back to local session', e);
-    }
-    return {
-      status: 'success',
-      session_id: 'intake-' + Date.now().toString(36),
-      patient_id: patientId,
-      department,
-      language,
-      is_ayush_enabled: isAyush,
-      progress_percent: 10,
-      stage: 'CHIEF_COMPLAINT',
-      initial_prompt: language === 'hi'
-        ? "नमस्ते! मैं आपका मेडीकियोस्क डिजिटल सहायक हूँ। आज अस्पताल आने का मुख्य कारण क्या है?"
-        : "Namaste and welcome to MediKiosk. What primary health issue brings you to the clinic today?",
-      suggested_answers: language === 'hi'
-        ? ["खांसी और बुखार", "सांस लेने में तकलीफ", "पेट दर्द", "कमजोरी व चक्कर"]
-        : ["Persistent Cough & Fever", "Chest or Breathing Trouble", "Abdominal Pain", "Body Ache / Fatigue"],
-    };
-  },
-
-  sendIntakeSessionMessage: async (sessionId, message, inputMode = 'touch') => {
-    try {
-      const res = await fetch(`${API_BASE}/intake/sessions/${sessionId}/message/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, input_mode: inputMode }),
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('Intake message error, using client fallback', e);
+    if (docData instanceof FormData) {
+      body = docData;
+    } else {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(docData);
     }
 
-    const isRedFlag = /(chest.*pain|breathless|short.*breath|heart.*attack)/i.test(message);
-    return {
-      session_id: sessionId,
-      stage: 'HPI',
-      progress_percent: 35,
-      flagged: isRedFlag,
-      flag_reason: isRedFlag ? 'Cardiovascular Alert: Potential ischemic chest pain' : '',
-      ai_message: {
-        id: Date.now(),
-        text: `Understood: "${message}". When did this onset and how many days has it persisted?`,
-        suggested_answers: ["Started today", "1-2 days ago", "About 5 days ago", "More than 2 weeks ago"],
-        timestamp: new Date().toISOString()
-      },
-      draft: {
-        chief_complaint: message,
-        hpi: { duration: "5 days", character: "Productive" },
-        allergies: ["Penicillin (Severe)"]
-      }
-    };
+    return await request('/documents/scan/', {
+      method: 'POST',
+      headers,
+      body,
+    });
   },
 
-  getIntakeSessionDraft: async (sessionId) => {
-    try {
-      const res = await fetch(`${API_BASE}/intake/sessions/${sessionId}/draft/`);
-      if (res.ok) return await res.json();
-    } catch (e) {
-      return { draft: {} };
-    }
+  confirmDocument: async (confirmData) => {
+    return await request('/documents/confirm/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(confirmData),
+    });
   },
 
-  // 7. Clinical Summary & Doctor Triage (Module C & Triage)
-  getPatientSummary: async (patientId = 'MK-78294') => {
-    try {
-      const res = await fetch(`${API_BASE}/summary/${patientId}/`);
-      if (res.ok) return await res.json();
-    } catch (e) {
-      return {
-        patient_id: patientId,
-        patient_name: 'Sarah Jenkins',
-        age: 38,
-        gender: 'Female',
-        blood_group: 'A+',
-        chief_complaint: 'Productive cough x 5 days with purulent sputum, fever (101.2 F), exertional dyspnea',
-        vitals: {
-          heart_rate: '104 bpm (mild tachycardia)',
-          blood_pressure: '118/76 mmHg',
-          spo2: '95% (Room Air)',
-          temperature: '101.2 F'
-        },
-        allergies: ['Penicillin & Beta-lactams (Anaphylactoid Hives / Edema)'],
-        active_medications: [
-          { name: 'Augmentin 625mg', dose: '1 tab TDS', flag: 'CONTRAINDICATED: Patient Penicillin Allergic!' },
-          { name: 'Paracetamol 650mg', dose: '1 tab SOS', flag: 'Active' }
-        ],
-      };
-    }
+  // 6. AI Agent Chat & Multi-Thread Conversations
+  getConversations: async (patientId = '') => {
+    const query = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+    const res = await request(`/agent/conversations/${query}`, {
+      headers: getAuthHeaders(),
+    });
+    return Array.isArray(res) ? res : [];
+  },
+
+  createConversation: async (title = '', patientId = '') => {
+    return await request('/agent/conversations/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ title, patient_id: patientId }),
+    });
+  },
+
+  getChatHistory: async (conversationId = '', patientId = '') => {
+    const params = new URLSearchParams();
+    if (conversationId) params.append('conversation_id', conversationId);
+    if (patientId) params.append('patient_id', patientId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await request(`/agent/chat/${qs}`, {
+      headers: getAuthHeaders(),
+    });
+    return Array.isArray(res) ? res : [];
+  },
+
+  sendChatMessage: async (text, conversationId = '', patientId = '') => {
+    return await request('/agent/chat/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        text,
+        conversation_id: conversationId || undefined,
+        patient_id: patientId || undefined
+      }),
+    });
+  },
+
+  // 7. Clinical Summary & Triage
+  getPatientSummary: async (patientId = '') => {
+    const query = patientId ? `${encodeURIComponent(patientId)}/` : '';
+    return await request(`/summary/${query}`, {
+      headers: getAuthHeaders(),
+    });
   },
 
   getActiveAlerts: async () => {
+    return await request('/triage/alerts/', {
+      headers: getAuthHeaders(),
+    });
+  },
+
+  grantConsent: async (patientId = '', purpose = 'CARE_CONSULTATION') => {
+    return await request('/consent/grant/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ patient_id: patientId, purpose }),
+    });
+  },
+
+  // 8. Conversational Intake Sessions (Kiosk)
+  createIntakeSession: async ({ patientId = '', department = 'General Medicine', language = 'en', isAyush = false } = {}) => {
+    return await request('/intake/sessions/', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        patient_id: patientId,
+        department,
+        language,
+        is_ayush_enabled: isAyush,
+      }),
+    });
+  },
+
+  sendIntakeSessionMessage: async (sessionId, message, inputMode = 'touch') => {
+    return await request(`/intake/sessions/${sessionId}/message/`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ message, input_mode: inputMode }),
+    });
+  },
+
+  getIntakeSessionDraft: async (sessionId) => {
+    return await request(`/intake/sessions/${sessionId}/draft/`, {
+      headers: getAuthHeaders(),
+    });
+  },
+
+  // 9. Admin Panel & Anti-Spam Security APIs (Secured with Admin JWT)
+  getAdminHeaders: () => {
+    const token = localStorage.getItem('medikiosk_admin_token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  },
+
+  adminLogin: async (username, password) => {
     try {
-      const res = await fetch(`${API_BASE}/triage/alerts/`);
-      if (res.ok) return await res.json();
+      const res = await fetch(`${API_BASE}/admin/login/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (res.ok && data.tokens?.access) {
+        localStorage.setItem('medikiosk_admin_token', data.tokens.access);
+        localStorage.setItem('medikiosk_admin_refresh', data.tokens.refresh);
+        localStorage.setItem('medikiosk_admin_user', JSON.stringify(data.user));
+        return { success: true, user: data.user };
+      }
+      return { success: false, error: data.error || 'Invalid administrator credentials.' };
     } catch (e) {
-      return {
-        alerts: [
-          {
-            id: 'alert-001',
-            patient_id: 'MK-78294',
-            patient_name: 'Sarah Jenkins',
-            alert_type: 'DRUG_CONTRAINDICATION',
-            severity: 'CRITICAL',
-            message: 'Prescribed Augmentin (Amoxicillin) detected with verified PENICILLIN ANAPHYLAXIS allergy.',
-            created_at: '2026-09-05T19:10:00Z'
-          }
-        ]
-      };
+      return { success: false, error: 'Connection to administration service failed.' };
     }
   },
 
-  grantConsent: async (patientId = 'MK-78294', purpose = 'CARE_CONSULTATION') => {
+  adminLogout: () => {
+    localStorage.removeItem('medikiosk_admin_token');
+    localStorage.removeItem('medikiosk_admin_refresh');
+    localStorage.removeItem('medikiosk_admin_user');
+  },
+
+  isAdminAuthenticated: () => {
+    const token = localStorage.getItem('medikiosk_admin_token');
+    const userStr = localStorage.getItem('medikiosk_admin_user');
+    if (!token || !userStr) return false;
     try {
-      const res = await fetch(`${API_BASE}/consent/grant/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patient_id: patientId, purpose }),
+      const u = JSON.parse(userStr);
+      return Boolean(u && (u.role === 'ADMIN' || u.is_superuser));
+    } catch (e) {
+      return false;
+    }
+  },
+
+  getAdminStats: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/stats/`, {
+        headers: api.getAdminHeaders(),
       });
       if (res.ok) return await res.json();
-    } catch (e) {
-      return { status: 'granted', consent_id: `CONSENT-${patientId}-2026` };
-    }
+    } catch (e) {}
+    return null;
+  },
+
+  getAdminUsers: async (params = {}) => {
+    try {
+      const query = new URLSearchParams(params).toString();
+      const res = await fetch(`${API_BASE}/admin/users/${query ? `?${query}` : ''}`, {
+        headers: api.getAdminHeaders(),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { count: 0, users: [] };
+  },
+
+  getAdminUser: async (userId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/`, {
+        headers: api.getAdminHeaders(),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  toggleUserSpammer: async (userId, notes = '') => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ action: 'toggle_spammer', notes }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  toggleUserActive: async (userId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ action: 'toggle_active' }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  updateAdminUser: async (userId, payload) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ action: 'edit_user', ...payload }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  deleteAdminUser: async (userId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/`, {
+        method: 'DELETE',
+        headers: api.getAdminHeaders(),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  resetUserSecurity: async (userId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ action: 'reset_security' }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  getBlockedIdentifiers: async (activeOnly = false) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/security/spammers/?active_only=${activeOnly}`, {
+        headers: api.getAdminHeaders(),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { count: 0, blocked_identifiers: [] };
+  },
+
+  blockIdentifier: async (identifier, identifierType = 'IP', reason = '') => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/security/block/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ identifier, identifier_type: identifierType, reason }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  unblockIdentifier: async (id, identifier = '') => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/security/unblock/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ id, identifier }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  getSecurityLogs: async (risk = 'ALL', event = 'ALL') => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/security/logs/?risk=${risk}&event=${event}`, {
+        headers: api.getAdminHeaders(),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return { count: 0, logs: [] };
+  },
+
+  simulateSecurityIncident: async (type = 'otp_flood') => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/security/simulate/`, {
+        method: 'POST',
+        headers: api.getAdminHeaders(),
+        body: JSON.stringify({ type }),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
   }
 };

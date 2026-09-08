@@ -29,7 +29,7 @@ class PhysicianSummaryDetailView(APIView):
     """
     Module C: Retrieve or amend/confirm clinical summary with audit logging.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, summary_id):
         summary = PhysicianSummary.objects.filter(
@@ -41,11 +41,22 @@ class PhysicianSummaryDetailView(APIView):
         if not summary:
             return Response({"error": "Summary not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        if summary.patient and summary.patient != request.user and not getattr(request.user, 'is_clinical_staff', False):
+            return Response(
+                {"error": "Forbidden: You cannot access another patient's clinical summary."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         serializer = PhysicianSummarySerializer(summary)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request, summary_id):
         summary = get_object_or_404(PhysicianSummary, summary_id=summary_id)
+        if summary.patient and summary.patient != request.user and not getattr(request.user, 'is_clinical_staff', False):
+            return Response(
+                {"error": "Forbidden: You cannot modify another patient's clinical summary."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         changes = {}
 
         # Log fields modified
@@ -81,7 +92,7 @@ class PhysicianSummaryDetailView(APIView):
 
 # Backward-compatible view wrappers
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def generate_summary(request):
     session_id = request.data.get('session_id', 'intake-session-001')
     session = IntakeSession.objects.filter(session_id=session_id).first()
@@ -91,6 +102,17 @@ def generate_summary(request):
     return Response(PhysicianSummarySerializer(summary).data, status=status.HTTP_201_CREATED)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_patient_summary(request, patient_id):
+    if getattr(request.user, 'is_patient', False):
+        profile = getattr(request.user, 'patient_profile', None)
+        allowed = {request.user.username}
+        if profile:
+            allowed.update([profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone])
+        if patient_id not in allowed:
+            return Response(
+                {"error": "Forbidden: You cannot access another patient's summary."},
+                status=status.HTTP_403_FORBIDDEN
+            )
     return PhysicianSummaryDetailView().get(request, patient_id)
+

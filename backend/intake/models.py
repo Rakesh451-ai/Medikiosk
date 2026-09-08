@@ -25,7 +25,7 @@ class IntakeSession(models.Model):
         null=True,
         blank=True
     )
-    patient_identifier = models.CharField(max_length=64, default='MK-78294')
+    patient_identifier = models.CharField(max_length=64, default='', blank=True)
     doctor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

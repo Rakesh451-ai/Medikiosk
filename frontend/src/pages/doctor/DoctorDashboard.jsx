@@ -7,7 +7,7 @@ import {
 import { api } from '../../services/api';
 
 export default function DoctorDashboard() {
-  const [selectedPatientId, setSelectedPatientId] = useState('MK-78294');
+  const [selectedPatientId, setSelectedPatientId] = useState('PT-1042');
   const [summaryData, setSummaryData] = useState(null);
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -79,12 +79,11 @@ export default function DoctorDashboard() {
     setActiveAlerts(prev => prev.map(a => a.id === alertId || a.alert_id === alertId ? { ...a, is_resolved: true, status: 'resolved' } : a));
   };
 
-  // Mock patient queue prioritized by urgency
+  // Patient queue prioritized by triage urgency
   const patientQueue = [
-    { id: 'MK-78294', name: 'Sarah Jenkins', age: '38F', token: '#42', urgency: 'CRITICAL', wait: '4m', complaint: 'Cough, Fever, Dyspnea (Penicillin Alert)', flagged: true },
-    { id: 'MK-78297', name: 'David Miller', age: '67M', token: '#45', urgency: 'HIGH', wait: '18m', complaint: 'Chest tightness, elevated BP', flagged: true },
-    { id: 'MK-78295', name: 'Ramesh Patel', age: '54M', token: '#43', urgency: 'MEDIUM', wait: '25m', complaint: 'Hypertension follow-up', flagged: false },
-    { id: 'MK-78296', name: 'Sunita Devi', age: '29F', token: '#44', urgency: 'LOW', wait: '32m', complaint: 'Migraine & headache', flagged: false },
+    { id: 'PT-1042', name: 'Ramesh Patel', age: '54M', token: '#42', urgency: 'MEDIUM', wait: '12m', complaint: 'Hypertension follow-up', flagged: false },
+    { id: 'PT-1045', name: 'Sunita Devi', age: '29F', token: '#43', urgency: 'LOW', wait: '25m', complaint: 'Migraine & headache', flagged: false },
+    { id: 'PT-1047', name: 'David Miller', age: '67M', token: '#44', urgency: 'HIGH', wait: '32m', complaint: 'Chest tightness, elevated BP', flagged: true },
   ];
 
   // Lab investigations with abnormal flags
@@ -158,7 +157,7 @@ export default function DoctorDashboard() {
                     CRITICAL TRIAGE RED-FLAG
                   </span>
                   <span className="text-xs font-bold text-red-800 font-mono">
-                    Patient: {alert.patient_name || alert.patient_identifier || 'Sarah Jenkins'}
+                    Patient: {alert.patient_name || alert.patient_identifier || 'Outpatient Citizen'}
                   </span>
                 </div>
                 <p className="text-sm sm:text-base font-extrabold text-red-900 leading-snug">
@@ -290,16 +289,18 @@ export default function DoctorDashboard() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-4">
                 <div>
                   <div className="flex items-center space-x-3">
-                    <h2 className="text-2xl font-black text-slate-900">Sarah Jenkins</h2>
+                    <h2 className="text-2xl font-black text-slate-900">{summaryData?.patient_name || 'Patient Consultation'}</h2>
                     <span className="text-xs px-2.5 py-1 rounded-md bg-blue-50 text-blue-800 font-bold border border-blue-200">
-                      ID: MK-78294
+                      ID: {summaryData?.patient_id || selectedPatientId || 'EHR-Profile'}
                     </span>
-                    <span className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
-                      ABHA: 14-8921-3490-1284
-                    </span>
+                    {summaryData?.blood_group && (
+                      <span className="text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+                        Blood: {summaryData.blood_group}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    38F • Blood: A+ • Phone: +91-9123456780 • Language: English & Hindi
+                    Chief complaint: {chiefComplaint || 'Routine medical examination'}
                   </p>
                 </div>
 

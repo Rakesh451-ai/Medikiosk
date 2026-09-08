@@ -17,7 +17,7 @@ class ConsentRecord(models.Model):
         null=True,
         blank=True
     )
-    patient_identifier = models.CharField(max_length=64, default='MK-78294', db_index=True)
+    patient_identifier = models.CharField(max_length=64, default='', blank=True, db_index=True)
     purpose = models.CharField(max_length=50, choices=Purpose.choices, default=Purpose.SHARE_HOSPITAL)
     granted = models.BooleanField(default=True, db_index=True)
     granted_at = models.DateTimeField(auto_now_add=True)

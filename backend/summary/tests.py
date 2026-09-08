@@ -2,14 +2,19 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
+from django.contrib.auth import get_user_model
 
 from intake.models import IntakeSession, ClinicalHistoryDraft
 from documents.models import MedicalDocument, ExtractedRecord
 from summary.models import PhysicianSummary, SummaryRevision
 
+User = get_user_model()
+
 class ModuleCSummaryEngineTest(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.doctor = User.objects.create_user(username='dr_sharma', password='password123', role=User.Role.DOCTOR)
+        self.client.force_authenticate(user=self.doctor)
 
         # 1. Setup Intake Session & Draft
         self.session = IntakeSession.objects.create(
@@ -34,16 +39,10 @@ class ModuleCSummaryEngineTest(TestCase):
         )
         ExtractedRecord.objects.create(
             document=self.doc,
-            record_type=ExtractedRecord.RecordType.MEDICATION,
-            structured_data={'name': 'Paracetamol 650mg', 'frequency': 'SOS'},
-            is_abnormal=False
-        )
-        ExtractedRecord.objects.create(
-            document=self.doc,
             record_type=ExtractedRecord.RecordType.LAB_RESULT,
-            structured_data={'test_name': 'Hemoglobin', 'value': 10.8, 'unit': 'g/dL'},
+            structured_data={'test_name': 'WBC', 'value': 14200.0, 'unit': '/mcL'},
             is_abnormal=True,
-            abnormal_flag_reason='Low'
+            abnormal_flag_reason='Leukocytosis'
         )
 
     def test_generate_clinical_summary_endpoint(self):

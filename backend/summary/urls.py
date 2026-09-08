@@ -14,4 +14,5 @@ urlpatterns = [
     # Backward compatibility
     path('generate/', generate_summary, name='summary-generate'),
     path('patient/<str:patient_id>/', get_patient_summary, name='summary-patient'),
+    path('patient/<str:patient_id>/aggregate/', get_patient_summary, name='summary-aggregate'),
 ]

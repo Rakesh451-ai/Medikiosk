@@ -6,6 +6,10 @@ from .views import (
     CurrentUserView,
     LogoutView,
     clinical_patients_list,
+    SendOTPView,
+    VerifyOTPView,
+    UnifiedLoginView,
+    PatientLookupView,
 )
 
 urlpatterns = [
@@ -15,6 +19,12 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('logout/', LogoutView.as_view(), name='auth-logout'),
     path('me/', CurrentUserView.as_view(), name='auth-current-user'),
+
+    # Multi-Identifier Authentication (Aadhaar, ABHA, Mobile, Email)
+    path('otp/send/', SendOTPView.as_view(), name='auth-otp-send'),
+    path('otp/verify/', VerifyOTPView.as_view(), name='auth-otp-verify'),
+    path('unified-login/', UnifiedLoginView.as_view(), name='auth-unified-login'),
+    path('lookup/', PatientLookupView.as_view(), name='auth-lookup'),
 
     # Clinical endpoint demonstrating Role-Based DRF Permissions
     path('clinical/patients/', clinical_patients_list, name='clinical-patients-list'),

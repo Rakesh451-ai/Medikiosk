@@ -132,6 +132,7 @@ class Command(BaseCommand):
                 'phone': '9123456780',
                 'preferred_language': 'en',
                 'mock_abha_id': '14-8921-3490-1284',
+                'mock_aadhaar_id': '5521 8934 1284',
             },
             {
                 'username': 'ramesh_patel',
@@ -142,6 +143,7 @@ class Command(BaseCommand):
                 'phone': '9876543210',
                 'preferred_language': 'hi',
                 'mock_abha_id': '14-4512-8809-3321',
+                'mock_aadhaar_id': '8890 4512 3321',
             },
             {
                 'username': 'sunita_devi',
@@ -152,6 +154,7 @@ class Command(BaseCommand):
                 'phone': '9811223344',
                 'preferred_language': 'hi',
                 'mock_abha_id': '14-7721-6543-9012',
+                'mock_aadhaar_id': '7733 6543 9012',
             }
         ]
 
@@ -178,8 +181,106 @@ class Command(BaseCommand):
                     'phone': p['phone'],
                     'preferred_language': p['preferred_language'],
                     'mock_abha_id': p['mock_abha_id'],
+                    'mock_aadhaar_id': p['mock_aadhaar_id'],
                 }
             )
-            self.stdout.write(self.style.SUCCESS(f"✓ Patient created: {p['username']} / PatientPass123! ({p['name']}, ABHA: {p['mock_abha_id']})"))
+            self.stdout.write(self.style.SUCCESS(f"✓ Patient created: {p['username']} / PatientPass123! ({p['name']}, ABHA: {p['mock_abha_id']}, Aadhaar: {p['mock_aadhaar_id']})"))
 
-        self.stdout.write(self.style.SUCCESS("\nAll demo accounts seeded successfully!"))
+        # 5. Flagged Spammer Account
+        spammer_user, _ = User.objects.get_or_create(
+            username='bot_crawler_01',
+            defaults={
+                'email': 'bot_crawler@badproxy.net',
+                'first_name': 'Scraper',
+                'last_name': 'Bot',
+                'role': User.Role.PATIENT,
+                'is_active': False,
+                'is_flagged_spammer': True,
+                'spam_score': 92,
+                'spam_notes': 'Automated bot: 45 OTP requests within 3 minutes from proxy IP',
+            }
+        )
+        spammer_user.is_flagged_spammer = True
+        spammer_user.is_active = False
+        spammer_user.spam_score = 92
+        spammer_user.spam_notes = 'Automated bot: 45 OTP requests within 3 minutes from proxy IP'
+        spammer_user.save()
+
+        # 6. Blacklisted / Blocked Identifiers
+        from accounts.models import BlockedIdentifier, SecurityAuditLog
+        blocked_entries = [
+            {
+                'identifier': '9999999999',
+                'identifier_type': BlockedIdentifier.IdentifierType.PHONE,
+                'reason': 'High-frequency OTP flood and fake identity injection attempts',
+            },
+            {
+                'identifier': '198.51.100.42',
+                'identifier_type': BlockedIdentifier.IdentifierType.IP,
+                'reason': 'Credential brute force attack targeting patient login API',
+            },
+            {
+                'identifier': '0000 0000 0000',
+                'identifier_type': BlockedIdentifier.IdentifierType.AADHAAR,
+                'reason': 'Forged Aadhaar ID checksum and duplicate biometric spoof',
+            },
+            {
+                'identifier': 'spammer_bot@fakemail.io',
+                'identifier_type': BlockedIdentifier.IdentifierType.EMAIL,
+                'reason': 'Reported malicious phishing attempt in feedback forms',
+            },
+        ]
+        for b in blocked_entries:
+            BlockedIdentifier.objects.update_or_create(
+                identifier=b['identifier'],
+                defaults={
+                    'identifier_type': b['identifier_type'],
+                    'reason': b['reason'],
+                    'is_active': True,
+                    'blocked_by': admin_user,
+                }
+            )
+
+        # 7. Initial Security Audit Logs
+        sample_logs = [
+            {
+                'event_type': SecurityAuditLog.EventType.OTP_FLOOD,
+                'identifier': '9999999999',
+                'ip_address': '198.51.100.42',
+                'risk_level': SecurityAuditLog.RiskLevel.HIGH,
+                'details': 'Automated rate limit triggered: 14 OTP requests in 60 seconds.',
+            },
+            {
+                'event_type': SecurityAuditLog.EventType.FAILED_LOGIN,
+                'identifier': 'sarah_jenkins',
+                'ip_address': '192.168.1.105',
+                'risk_level': SecurityAuditLog.RiskLevel.LOW,
+                'details': 'Single failed PIN entry on OPD kiosk station.',
+            },
+            {
+                'event_type': SecurityAuditLog.EventType.SPAM_DETECTED,
+                'identifier': '0000 0000 0000',
+                'ip_address': '103.21.244.0',
+                'risk_level': SecurityAuditLog.RiskLevel.CRITICAL,
+                'details': 'UIDAI verification gateway rejected invalid Aadhaar checksum.',
+            },
+            {
+                'event_type': SecurityAuditLog.EventType.USER_BANNED,
+                'identifier': 'bot_crawler_01',
+                'ip_address': '198.51.100.42',
+                'risk_level': SecurityAuditLog.RiskLevel.HIGH,
+                'details': 'Account automatically suspended and blacklisted by security engine.',
+            },
+        ]
+        for l in sample_logs:
+            SecurityAuditLog.objects.get_or_create(
+                event_type=l['event_type'],
+                identifier=l['identifier'],
+                ip_address=l['ip_address'],
+                details=l['details'],
+                defaults={'risk_level': l['risk_level']}
+            )
+
+        self.stdout.write(self.style.SUCCESS("✓ Demo spammers, blacklist, and security logs seeded successfully!"))
+        self.stdout.write(self.style.SUCCESS("\nAll demo accounts and security configurations ready!"))
+

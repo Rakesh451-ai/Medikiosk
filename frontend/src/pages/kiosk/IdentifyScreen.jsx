@@ -13,7 +13,7 @@ const I18N = {
     step1Sub: "Choose how you would like to identify yourself today.",
     scanAbhaTab: "Scan / Enter ABHA ID",
     registerTab: "New Patient Registration",
-    instantDemo: "Instant 1-Tap Demo (Sarah Jenkins)",
+    instantDemo: "Quick Outpatient Check-In (Demo)",
     abhaLabel: "Enter 14-digit ABHA ID or Mobile Number",
     abhaPlaceholder: "e.g. 14-8921-3490-1284 or 9123456780",
     nameLabel: "Full Name",
@@ -42,7 +42,7 @@ const I18N = {
     step1Sub: "कृपया अपनी पहचान का तरीका चुनें।",
     scanAbhaTab: "आभा (ABHA) आईडी दर्ज करें",
     registerTab: "नया मरीज़ पंजीकरण",
-    instantDemo: "त्वरित डेमो (सारा जेनकिंस - MK-78294)",
+    instantDemo: "त्वरित आउटपेशेंट चेक-इन (डेमो)",
     abhaLabel: "14 अंकों की आभा आईडी या मोबाइल नंबर",
     abhaPlaceholder: "उदा. 14-8921-3490-1284 या 9123456780",
     nameLabel: "पूरा नाम",
@@ -136,10 +136,10 @@ export default function IdentifyScreen({ onComplete }) {
 
   const handleInstantDemo = () => {
     setAbhaInput('14-8921-3490-1284');
-    setName('Sarah Jenkins');
-    setPhone('9123456780');
-    setAge('38');
-    setGender('FEMALE');
+    setName('Ramesh Kumar');
+    setPhone('9876543210');
+    setAge('42');
+    setGender('MALE');
     setStage('consent');
   };
 
@@ -154,11 +154,12 @@ export default function IdentifyScreen({ onComplete }) {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
     try {
+      const parsedAge = age ? parseInt(age, 10) : null;
       if (mode === 'register') {
         const regRes = await api.registerPatient({
           name,
           phone,
-          age: parseInt(age) || 30,
+          age: parsedAge,
           gender,
           preferred_language: lang,
           mock_abha_id: abhaInput || undefined
@@ -167,33 +168,33 @@ export default function IdentifyScreen({ onComplete }) {
           patientId: regRes.user?.username || 'MK-NEW',
           name,
           phone,
-          age,
+          age: parsedAge,
           gender,
           language: lang,
-          mockAbhaId: regRes.user?.patient_profile?.mock_abha_id || '14-8921-3490-1284'
+          mockAbhaId: regRes.user?.patient_profile?.mock_abha_id || ''
         });
       } else {
-        // Fast ABHA lookup or default demo
         onComplete({
-          patientId: abhaInput.includes('14-') ? 'MK-78294' : 'MK-' + abhaInput.slice(-5),
-          name: name || (abhaInput.includes('14-8921') ? 'Sarah Jenkins' : 'Outpatient Citizen'),
-          phone: phone || '9123456780',
-          age: age || 38,
+          patientId: abhaInput ? 'ABHA-' + abhaInput.slice(-6) : 'PT-' + Date.now().toString().slice(-6),
+          name: name || 'Outpatient Citizen',
+          phone: phone || '',
+          age: parsedAge,
           gender,
           language: lang,
-          mockAbhaId: abhaInput || '14-8921-3490-1284'
+          mockAbhaId: abhaInput || ''
         });
       }
     } catch (err) {
-      console.warn('Registration fallback', err);
+      console.warn('Registration error', err);
+      const parsedAge = age ? parseInt(age, 10) : null;
       onComplete({
-        patientId: 'MK-78294',
-        name: name || 'Sarah Jenkins',
-        phone: phone || '9123456780',
-        age: 38,
-        gender: 'FEMALE',
+        patientId: 'PT-' + Date.now().toString().slice(-6),
+        name: name || 'Outpatient Citizen',
+        phone: phone || '',
+        age: parsedAge,
+        gender: gender || 'Other',
         language: lang,
-        mockAbhaId: abhaInput || '14-8921-3490-1284'
+        mockAbhaId: abhaInput || ''
       });
     } finally {
       setIsSubmitting(false);
@@ -321,7 +322,7 @@ export default function IdentifyScreen({ onComplete }) {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Sarah Jenkins"
+                    placeholder="e.g. Ramesh Kumar"
                     className="w-full px-4 py-3.5 text-lg font-semibold bg-slate-50 border-2 border-slate-300 rounded-2xl focus:border-emerald-600 focus:outline-none"
                   />
                 </div>
@@ -443,9 +444,9 @@ export default function IdentifyScreen({ onComplete }) {
 
           {/* Patient Details Snapshot */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium text-slate-700 flex flex-wrap justify-between gap-2">
-            <div><strong>Patient:</strong> {name || 'Sarah Jenkins'}</div>
+            <div><strong>Patient:</strong> {name || 'Outpatient Citizen'}</div>
             <div><strong>Language:</strong> {lang.toUpperCase()}</div>
-            <div><strong>Mock ABHA ID:</strong> {abhaInput || '14-8921-3490-1284'}</div>
+            {abhaInput && <div><strong>ABHA / Phone:</strong> {abhaInput}</div>}
           </div>
 
           {/* Action Buttons */}

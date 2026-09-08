@@ -35,7 +35,7 @@ class TriageAlert(models.Model):
         null=True,
         blank=True
     )
-    patient_identifier = models.CharField(max_length=64, default='MK-78294', db_index=True)
+    patient_identifier = models.CharField(max_length=64, default='', blank=True, db_index=True)
     reason = models.TextField(default='', blank=True, help_text="Clinical symptom trigger flagged for clinician review")
     trigger_reason = models.CharField(max_length=255, blank=True, default='')
     severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.HIGH, db_index=True)

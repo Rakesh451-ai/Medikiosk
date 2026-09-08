@@ -3,12 +3,17 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
+from django.contrib.auth import get_user_model
 from documents.models import MedicalDocument, ExtractedRecord
 from documents.ocr_engine import check_abnormal_lab, parse_and_store_entities
+
+User = get_user_model()
 
 class ModuleBDocumentsEngineTest(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.user = User.objects.create_user(username='MK-78294', password='password123')
+        self.client.force_authenticate(user=self.user)
 
     def test_reference_range_lookup(self):
         # Normal hemoglobin (14.0)
@@ -78,6 +83,9 @@ class ModuleBDocumentsEngineTest(TestCase):
         self.assertIn('Metformin', response.data['plain_language_summary'])
 
     def test_patient_document_timeline(self):
+        timeline_user = User.objects.create_user(username='MK-TIMELINE-PT', password='password123')
+        self.client.force_authenticate(user=timeline_user)
+
         doc = MedicalDocument.objects.create(
             doc_id='doc-timeline-01',
             patient_identifier='MK-TIMELINE-PT',
@@ -97,4 +105,3 @@ class ModuleBDocumentsEngineTest(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['total_documents'], 1)
         self.assertEqual(len(response.data['timeline']), 1)
-

@@ -91,4 +91,7 @@ class SummaryRevision(models.Model):
     def __str__(self):
         return f"Revision on {self.summary.summary_id} by {self.edited_by} at {self.created_at}"
 
+# Backwards compatibility alias
+ClinicalSummary = PhysicianSummary
+
 

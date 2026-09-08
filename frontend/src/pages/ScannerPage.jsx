@@ -1,406 +1,1041 @@
-import React, { useState, useRef } from 'react';
-import { Camera, Upload, CheckCircle2, Sparkles, AlertCircle, RefreshCw, FileText, ArrowRight, ShieldCheck } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Camera,
+  CameraOff,
+  SwitchCamera,
+  Upload,
+  CheckCircle2,
+  Sparkles,
+  AlertCircle,
+  AlertTriangle,
+  RefreshCw,
+  FileText,
+  ArrowRight,
+  ShieldCheck,
+  Activity,
+  Heart,
+  Thermometer,
+  Eye,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  X,
+  FileCheck2,
+  FileImage,
+  FolderOpen
+} from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import confetti from 'canvas-confetti';
-import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
+import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 
 export function ScannerPage({ patient, onDocumentAdded }) {
-  const [activeAction, setActiveAction] = useState('scan');
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState(0);
-  const [scannedResult, setScannedResult] = useState(null);
-  const [allergyAlert, setAllergyAlert] = useState(false);
-  const fileInputRef = useRef(null);
+  const navigate = useNavigate();
 
-  const presetTemplates = [
-    {
-      id: 'template-rx',
-      title: 'Clinical Prescription - Dr. Michael Chen',
-      doc_type: 'Prescription',
-      facility: 'Metro General Hospital',
-      doctor: 'Dr. Michael Chen, MD',
-      diagnosis: 'Seasonal Upper Respiratory Tract Infection & Mild Bronchospasm',
-      extracted_text: 'METRO GENERAL HOSPITAL - CLINICAL PRESCRIPTION\nDate: 04-Sep-2026\nPatient: Sarah Jenkins (Age: 38)\nRx:\n1. Amoxicillin 500mg - 1 capsule PO q8h x 7d\n2. Levocetirizine 5mg - 1 tab PO qhs x 5d\n3. Fluticasone Nasal Spray - 2 sprays daily\nNotes: Adequate hydration. Review in 5 days.',
-      medications: [
-        { name: "Amoxicillin", dose: "500 mg", frequency: "3 times daily", duration: "7 days", instruction: "Take after meals with water", timing: "Morning, Noon, Night" },
-        { name: "Levocetirizine", dose: "5 mg", frequency: "Once daily", duration: "5 days", instruction: "Take at bedtime", timing: "Night" }
-      ],
-      confidence: '99.4%'
-    },
-    {
-      id: 'template-lab',
-      title: 'Comprehensive Metabolic Panel & CBC',
-      doc_type: 'Lab Report',
-      facility: 'BioPath Diagnostic Laboratories',
-      doctor: 'Dr. Rachel Adams, Pathologist',
-      diagnosis: 'Routine Fasting Metabolic & Lipid Panel',
-      extracted_text: 'BIOPATH DIAGNOSTICS\nPatient: Sarah Jenkins\n- Fasting Glucose: 92 mg/dL (Normal)\n- Total Cholesterol: 198 mg/dL (Desirable)\n- HDL Cholesterol: 58 mg/dL (Optimal)\n- Hemoglobin: 13.8 g/dL (Normal)\nImpression: Markers within expected reference ranges.',
-      medications: [
-        { name: "Omega-3 Fish Oil", dose: "1000 mg", frequency: "Daily", duration: "Ongoing", instruction: "Take with breakfast", timing: "Morning" }
-      ],
-      confidence: '98.9%'
-    },
-    {
-      id: 'template-xray',
-      title: 'Digital Chest Radiography (PA View)',
-      doc_type: 'Radiology',
-      facility: 'Advanced Imaging Center',
-      doctor: 'Dr. K. Vance, Radiologist',
-      diagnosis: 'Chest X-Ray Post-Viral Clearance',
-      extracted_text: 'ADVANCED RADIOLOGY & IMAGING\nExamination: Chest X-Ray PA View\nFindings: Lungs are clear without focal alveolar consolidation, pneumothorax, or pleural effusion. Cardiothoracic ratio is normal (0.45).\nImpression: Normal radiographic study.',
-      medications: [],
-      confidence: '99.8%'
-    }
+  // 5-Step Workflow: 1 = Select, 2 = Preview, 3 = Process, 4 = Review, 5 = Confirmed
+  const [step, setStep] = useState(1);
+
+  // Selected file state
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState(null);
+  const [isPdf, setIsPdf] = useState(false);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pdfPageNum, setPdfPageNum] = useState(1);
+  const [pdfTotalPages, setPdfTotalPages] = useState(1);
+
+  // Live camera stream state
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState('environment');
+  const [cameraError, setCameraError] = useState(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  // Process / Scan progress
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanStepIndex, setScanStepIndex] = useState(0);
+  const [scanStatusMessage, setScanStatusMessage] = useState('');
+  const [scanError, setScanError] = useState(null);
+
+  // Review & Confirm data
+  const [scannedDoc, setScannedDoc] = useState(null);
+  const [allergyAlert, setAllergyAlert] = useState(false);
+  const [allergyMessage, setAllergyMessage] = useState('');
+  const [showRawText, setShowRawText] = useState(false);
+  const [copiedRawText, setCopiedRawText] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  // DOM Refs
+  const videoRef = useRef(null);
+  const videoCanvasRef = useRef(null);
+  const pdfCanvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const fileInputPdfRef = useRef(null);
+  const fileInputImgRef = useRef(null);
+
+  const processingSteps = [
+    'Uploading document securely...',
+    'Reading pages & document layout...',
+    'Extracting clinical text via optical character recognition...',
+    'Identifying medications, dosages, and diagnostic findings...',
+    'Cross-checking against recorded patient allergies...',
+    'Preparing medical summary for clinical review...'
   ];
 
-  const handleStartScan = (template = presetTemplates[0]) => {
-    setIsScanning(true);
-    setScanProgress(10);
-    setScannedResult(null);
-    setAllergyAlert(false);
+  // Stop camera tracks on unmount
+  useEffect(() => {
+    return () => {
+      stopCameraTracks();
+    };
+  }, []);
 
-    const timer = setInterval(() => {
-      setScanProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(timer);
-          submitScan(template);
-          return 100;
-        }
-        return prev + 25;
-      });
-    }, 180);
+  const stopCameraTracks = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
   };
 
-  const submitScan = async (template) => {
+  // Start real device camera
+  const startCamera = async (facing = cameraFacingMode) => {
+    stopCameraTracks();
+    setCameraError(null);
+    setScanError(null);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('Camera access is not supported by your browser. Please upload a photo or PDF.');
+      return;
+    }
+
     try {
-      const payload = {
-        patient_id: patient?.patient_id || 'MK-78294',
-        title: template.title,
-        doc_type: template.doc_type,
-        facility: template.facility,
-        doctor: template.doctor,
-        diagnosis: template.diagnosis,
-        extracted_text: template.extracted_text,
-        confidence: template.confidence,
-        medications: template.medications
-      };
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: facing },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
 
-      const res = await api.scanDocument(payload);
-      setIsScanning(false);
-      setScannedResult(res.document || template);
-      setAllergyAlert(res.allergy_warning || false);
-      onDocumentAdded();
-
-      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-    } catch {
-      setIsScanning(false);
-      setScannedResult(template);
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setIsCameraActive(true);
+      setCameraFacingMode(facing);
+    } catch (err) {
+      console.warn('Camera access failed:', err);
+      let msg = 'Unable to start camera. Please check camera permissions.';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Camera permission was denied. Please allow camera permissions in your browser or upload a file directly.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = 'No camera found on this device. You can upload a photo or PDF.';
+      }
+      setCameraError(msg);
+      setIsCameraActive(false);
     }
   };
 
-  const handleFileUpload = (e) => {
+  const toggleCameraFacing = () => {
+    const nextFacing = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraFacingMode(nextFacing);
+    startCamera(nextFacing);
+  };
+
+  // Capture frame from camera
+  const capturePhotoAndProceed = () => {
+    if (!videoRef.current || !videoCanvasRef.current) return;
+    setIsCapturing(true);
+
+    try {
+      const video = videoRef.current;
+      const canvas = videoCanvasRef.current;
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, width, height);
+
+      canvas.toBlob((blob) => {
+        const file = new File([blob], `camera_scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const previewUrl = URL.createObjectURL(blob);
+
+        stopCameraTracks();
+        setIsCapturing(false);
+
+        setSelectedFile(file);
+        setFilePreviewUrl(previewUrl);
+        setIsPdf(false);
+        setPdfDoc(null);
+        setStep(2);
+      }, 'image/jpeg', 0.92);
+    } catch (err) {
+      console.error('Capture error:', err);
+      setIsCapturing(false);
+      setCameraError('Failed to capture photo frame. Please try again.');
+    }
+  };
+
+  // Handle PDF or Image file selection
+  const handleFileSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const custom = {
-      id: 'upload-' + Date.now(),
-      title: file.name.replace(/\.[^/.]+$/, ''),
-      doc_type: file.type.includes('pdf') ? 'Prescription' : 'Medical Scan',
-      facility: 'Uploaded Clinical Document',
-      doctor: 'Attending Physician',
-      diagnosis: 'Extracted via Optical Document Recognition',
-      extracted_text: `UPLOADED FILE: ${file.name}\nSize: ${(file.size / 1024).toFixed(1)} KB\nProcessed by Django REST Framework OCR Endpoint.`,
-      medications: [
-        { name: "Extracted Item", dose: "Standard", frequency: "Daily", duration: "7 days", instruction: "Take as directed", timing: "Morning" }
-      ],
-      confidence: '98.5%'
-    };
+    // Validate type and size (< 15MB)
+    const validExtensions = ['.pdf', '.png', '.jpg', '.jpeg'];
+    const lowerName = file.name.toLowerCase();
+    const isValidType = validExtensions.some(ext => lowerName.endsWith(ext));
+    if (!isValidType) {
+      alert('Please select a valid document format (.pdf, .png, .jpg, .jpeg).');
+      return;
+    }
 
-    handleStartScan(custom);
+    if (file.size > 15 * 1024 * 1024) {
+      alert('File size exceeds the 15MB limit. Please choose a smaller file.');
+      return;
+    }
+
+    stopCameraTracks();
+    setCameraError(null);
+    setScanError(null);
+    setSelectedFile(file);
+
+    const isPdfFile = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
+    setIsPdf(isPdfFile);
+
+    if (isPdfFile) {
+      try {
+        const previewUrl = URL.createObjectURL(file);
+        setFilePreviewUrl(previewUrl);
+
+        const pdfjsLib = await import('pdfjs-dist');
+        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '5.4.624'}/build/pdf.worker.min.mjs`;
+        }
+
+        const arrayBuffer = await file.arrayBuffer();
+        const loadedPdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        setPdfDoc(loadedPdf);
+        setPdfTotalPages(loadedPdf.numPages);
+        setPdfPageNum(1);
+        setStep(2);
+
+        // Render page 1 to canvas
+        setTimeout(() => renderPdfPage(loadedPdf, 1), 100);
+      } catch (err) {
+        console.warn('PDF load warning:', err);
+        setStep(2);
+      }
+    } else {
+      const previewUrl = URL.createObjectURL(file);
+      setFilePreviewUrl(previewUrl);
+      setPdfDoc(null);
+      setStep(2);
+    }
+  };
+
+  const renderPdfPage = async (doc, pageNumber) => {
+    if (!doc || !pdfCanvasRef.current) return;
+    try {
+      const page = await doc.getPage(pageNumber);
+      const canvas = pdfCanvasRef.current;
+      const viewport = page.getViewport({ scale: 1.2 });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+    } catch (e) {
+      console.warn('Page render error:', e);
+    }
+  };
+
+  const changePdfPage = (delta) => {
+    if (!pdfDoc) return;
+    const nextPage = pdfPageNum + delta;
+    if (nextPage >= 1 && nextPage <= pdfTotalPages) {
+      setPdfPageNum(nextPage);
+      renderPdfPage(pdfDoc, nextPage);
+    }
+  };
+
+  // Step 3: Run Document Optical Recognition & Extraction
+  const startProcessing = async () => {
+    if (!selectedFile) return;
+
+    setStep(3);
+    setScanProgress(10);
+    setScanStepIndex(0);
+    setScanStatusMessage(processingSteps[0]);
+    setScanError(null);
+
+    // Stepped animated progress updater
+    let currentPct = 10;
+    let stepIdx = 0;
+    const progressTimer = setInterval(() => {
+      currentPct += 12;
+      if (currentPct < 90) {
+        setScanProgress(currentPct);
+        stepIdx = Math.min(processingSteps.length - 1, Math.floor(currentPct / 18));
+        setScanStepIndex(stepIdx);
+        setScanStatusMessage(processingSteps[stepIdx]);
+      }
+    }, 450);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      if (patient?.patient_id && patient.patient_id !== 'Patient') {
+        formData.append('patient_id', patient.patient_id);
+      }
+      formData.append('title', selectedFile.name.replace(/\.[^/.]+$/, ''));
+
+      const serverRes = await api.scanDocument(formData);
+
+      clearInterval(progressTimer);
+      setScanProgress(100);
+      setScanStepIndex(5);
+      setScanStatusMessage('Extraction completed successfully!');
+
+      if (serverRes.can_extract === false || !serverRes.parsed_data) {
+        setScanError("We couldn't read this document. Try uploading a clearer scan or photo.");
+        return;
+      }
+
+      const doc = serverRes.document || {
+        id: serverRes.document_id,
+        title: selectedFile.name.replace(/\.[^/.]+$/, ''),
+        doc_type: serverRes.parsed_data.doc_type || 'Prescription',
+        doctor: serverRes.parsed_data.doctor || '',
+        facility: serverRes.parsed_data.facility || '',
+        date: serverRes.parsed_data.date || new Date().toISOString().split('T')[0],
+        diagnosis: serverRes.parsed_data.diagnosis || '',
+        medications: serverRes.parsed_data.medications || [],
+        lab_results: serverRes.parsed_data.lab_results || [],
+        vitals: serverRes.parsed_data.vitals || {},
+        extracted_text: serverRes.parsed_data.extracted_text || '',
+        confidence: serverRes.parsed_data.confidence || '95%'
+      };
+
+      setScannedDoc(doc);
+      setAllergyAlert(Boolean(serverRes.allergy_warning));
+      setAllergyMessage(serverRes.allergy_message || '');
+
+      setTimeout(() => {
+        setStep(4);
+      }, 400);
+
+    } catch (err) {
+      clearInterval(progressTimer);
+      console.error('Scan processing error:', err);
+      setScanError("We couldn't read this document. Try uploading a clearer scan or photo.");
+    }
+  };
+
+  // Step 5: Confirm & Commit Document to Medical Records
+  const handleConfirmDocument = async () => {
+    if (!scannedDoc) return;
+    setIsConfirming(true);
+
+    try {
+      const payload = {
+        document_id: scannedDoc.id,
+        patient_id: patient?.patient_id || '',
+        title: scannedDoc.title || 'Verified Medical Record',
+        doc_type: scannedDoc.doc_type || 'Prescription',
+        doctor: scannedDoc.doctor || '',
+        facility: scannedDoc.facility || '',
+        date: scannedDoc.date || new Date().toISOString().split('T')[0],
+        diagnosis: scannedDoc.diagnosis || '',
+        medications: scannedDoc.medications || [],
+        lab_results: scannedDoc.lab_results || [],
+        vitals: scannedDoc.vitals || {},
+        extracted_text: scannedDoc.extracted_text || ''
+      };
+
+      const res = await api.confirmDocument(payload);
+
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+
+      if (onDocumentAdded) {
+        onDocumentAdded(res?.updated_profile);
+      }
+
+      setStep(5);
+    } catch (err) {
+      alert(err.message || 'Failed to confirm document. Please try again.');
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
+  // Reset to Step 1
+  const resetWorkflow = () => {
+    stopCameraTracks();
+    if (filePreviewUrl) {
+      try { URL.revokeObjectURL(filePreviewUrl); } catch (e) {}
+    }
+    setSelectedFile(null);
+    setFilePreviewUrl(null);
+    setIsPdf(false);
+    setPdfDoc(null);
+    setScannedDoc(null);
+    setScanError(null);
+    setAllergyAlert(false);
+    setAllergyMessage('');
+    setStep(1);
+  };
+
+  const copyRawText = () => {
+    if (!scannedDoc?.extracted_text) return;
+    navigator.clipboard.writeText(scannedDoc.extracted_text);
+    setCopiedRawText(true);
+    setTimeout(() => setCopiedRawText(false), 2000);
   };
 
   return (
     <div className="w-full bg-[#cbf5d6] min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 flex flex-col items-center select-none font-sans">
-      <div className="w-full max-w-6xl space-y-6">
-        
+      {/* Hidden canvas for capturing video frames */}
+      <canvas ref={videoCanvasRef} className="hidden" />
+
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputPdfRef}
+        type="file"
+        accept=".pdf"
+        onChange={handleFileSelected}
+        className="hidden"
+      />
+      <input
+        ref={fileInputImgRef}
+        type="file"
+        accept=".png,.jpg,.jpeg"
+        onChange={handleFileSelected}
+        className="hidden"
+      />
+
+      <div className="w-full max-w-5xl space-y-6">
         {/* Header Title Section */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#297006] text-white text-xs font-bold shadow-xs mb-2">
               <Camera className="w-3.5 h-3.5" />
-              <span>Easy Paper Scanner</span>
+              <span>Optical Clinical Scanner</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#052e0a]">
-              Scan Your Doctor's Slip or Medical Report
+            <h1 className="text-2xl sm:text-3xl font-black text-[#052e0a]">
+              Scan Doctor's Slip, Prescription, or Lab Report
             </h1>
-            <p className="text-xs sm:text-sm text-gray-600 mt-1">
-              Hold your prescription or lab paper up to the camera. We'll read the medicines and instructions automatically.
+            <p className="text-xs sm:text-sm text-gray-700 mt-1">
+              Follow our 5-step clinical document pipeline to digitize prescriptions, test results, and medicines safely.
             </p>
           </div>
 
-          {/* Action Buttons: Scan & Upload */}
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={() => {
-                setActiveAction('scan');
-                handleStartScan(presetTemplates[0]);
-              }}
-              variant="secondary"
-              size="md"
-              icon={Camera}
-              className="px-6 py-2.5 sm:text-base"
-            >
-              Scan Slip
-            </Button>
-
-            <Button
-              onClick={() => {
-                setActiveAction('upload');
-                fileInputRef.current?.click();
-              }}
-              variant="outline"
-              size="md"
-              icon={Upload}
-              className="bg-white hover:bg-gray-100 text-[#052e0a] border-2 border-[#297006] px-6 py-2.5 sm:text-base"
-            >
-              Upload Photo/PDF
-            </Button>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.pdf"
-              capture="environment"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
+          {/* Stepper Pill Indicator */}
+          <div className="flex items-center gap-1.5 bg-white/90 px-3.5 py-1.5 rounded-full border border-emerald-300 text-xs font-bold text-[#052e0a] shadow-xs self-start sm:self-auto">
+            <span className="font-extrabold text-emerald-700">Step {step} of 5:</span>
+            <span>
+              {step === 1 && 'Select Document'}
+              {step === 2 && 'Preview'}
+              {step === 3 && 'Analyze OCR'}
+              {step === 4 && 'Review Findings'}
+              {step === 5 && 'Confirmed'}
+            </span>
           </div>
         </div>
 
-        {/* Allergy Warning Banner */}
-        {allergyAlert && (
-          <div className="p-4 bg-rose-600 text-white rounded-3xl shadow-xl flex items-start gap-3.5 border-2 border-rose-300 animate-fade-in">
-            <AlertCircle className="w-7 h-7 shrink-0 mt-0.5 text-amber-200" />
-            <div>
-              <h4 className="font-black text-base tracking-wide">⚠️ IMPORTANT ALLERGY WARNING!</h4>
-              <p className="text-xs sm:text-sm text-rose-100 mt-1 leading-relaxed">
-                This prescription contains <strong>Amoxicillin</strong>, but your chart lists an allergy to <strong>Penicillin</strong>. 
-                Please talk to your doctor or nurse before taking this medicine.
-              </p>
+        {/* ============================================================ */}
+        {/* STEP 1: SELECT DOCUMENT */}
+        {/* ============================================================ */}
+        {step === 1 && (
+          <div className="space-y-6">
+            {cameraError && (
+              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2.5 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{cameraError}</span>
+              </div>
+            )}
+
+            {/* Live Camera View if Active */}
+            {isCameraActive ? (
+              <Card className="p-4 sm:p-6 bg-slate-900 text-white rounded-3xl space-y-4 shadow-xl border-2 border-emerald-500/50 animate-fadeIn">
+                <div className="relative rounded-2xl overflow-hidden bg-black flex items-center justify-center max-h-[480px]">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-auto object-cover max-h-[480px]"
+                  />
+                  {/* Viewfinder Target Overlay */}
+                  <div className="absolute inset-8 border-2 border-dashed border-emerald-400/70 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
+                    <span className="text-[11px] font-bold bg-emerald-950/80 text-emerald-300 px-2 py-0.5 rounded-md w-fit">
+                      Align document inside frame
+                    </span>
+                    <span className="text-[10px] text-white/70 text-right">
+                      Ensure good lighting & no glare
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={stopCameraTracks}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CameraOff className="w-4 h-4" /> Cancel Camera
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={toggleCameraFacing}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                      title="Flip Camera"
+                    >
+                      <SwitchCamera className="w-4 h-4" /> Flip
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={capturePhotoAndProceed}
+                      disabled={isCapturing}
+                      className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-70"
+                    >
+                      {isCapturing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                      <span>Snap Photo & Preview</span>
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* 1. Live Camera */}
+                <Card
+                  onClick={() => startCamera('environment')}
+                  className="p-6 text-center space-y-4 hover:border-emerald-600 hover:shadow-lg transition-all cursor-pointer bg-white group flex flex-col justify-between border-2 border-emerald-200"
+                >
+                  <div className="space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mx-auto group-hover:scale-105 transition-transform">
+                      <Camera className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-base font-black text-slate-900">1. Take Photo with Camera</h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Hold prescription or doctor slip in front of your webcam or device camera.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 group-hover:underline">
+                      Open Camera <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </Card>
+
+                {/* 2. Upload PDF */}
+                <Card
+                  onClick={() => fileInputPdfRef.current?.click()}
+                  className="p-6 text-center space-y-4 hover:border-emerald-600 hover:shadow-lg transition-all cursor-pointer bg-white group flex flex-col justify-between border-2 border-emerald-200"
+                >
+                  <div className="space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center mx-auto group-hover:scale-105 transition-transform">
+                      <FileText className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-base font-black text-slate-900">2. Upload PDF Document</h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Upload digital prescription PDF, hospital lab report, or diagnostic summary.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-teal-700 group-hover:underline">
+                      Choose PDF File <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </Card>
+
+                {/* 3. Upload Image */}
+                <Card
+                  onClick={() => fileInputImgRef.current?.click()}
+                  className="p-6 text-center space-y-4 hover:border-emerald-600 hover:shadow-lg transition-all cursor-pointer bg-white group flex flex-col justify-between border-2 border-emerald-200"
+                >
+                  <div className="space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-cyan-100 text-cyan-800 flex items-center justify-center mx-auto group-hover:scale-105 transition-transform">
+                      <FileImage className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-base font-black text-slate-900">3. Upload Photo / Scan</h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Upload existing photo or scanned image (.jpg, .png) from your computer or phone.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-cyan-800 group-hover:underline">
+                      Choose Image File <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </Card>
+              </div>
+            )}
+
+            {/* Formats & Privacy Notice */}
+            <div className="bg-white/70 border border-emerald-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 gap-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>
+                  Supported: <strong>.pdf, .png, .jpg, .jpeg</strong> (Maximum file size: 15MB).
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                🔒 HIPAA & Ayushman Bharat privacy compliant.
+              </span>
             </div>
           </div>
         )}
 
-        {/* 2-Column Responsive Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          
-          {/* Left Column: Viewfinder & Presets */}
-          <Card className="lg:col-span-7 p-4 sm:p-5 shadow-md border-2 border-emerald-200/80 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <span className="font-bold text-xs text-[#052e0a] flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-                Scanner Camera Ready
-              </span>
-              <span className="text-[11px] text-gray-500 font-medium">Automatic text detection active</span>
-            </div>
-
-            {/* Viewfinder (#3f51b5) */}
-            <div className="relative w-full h-[300px] sm:h-[380px] rounded-3xl bg-[#3f51b5] shadow-xl overflow-hidden flex flex-col justify-between p-4 sm:p-5 border-2 border-[#303f9f]">
-              
-              {/* Corner Viewfinder Reticles */}
-              <div className="absolute inset-4 pointer-events-none z-10">
-                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white/80 rounded-tl-lg"></div>
-                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white/80 rounded-tr-lg"></div>
-                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white/80 rounded-bl-lg"></div>
-                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white/80 rounded-br-lg"></div>
+        {/* ============================================================ */}
+        {/* STEP 2: PREVIEW DOCUMENT */}
+        {/* ============================================================ */}
+        {step === 2 && selectedFile && (
+          <Card className="p-6 sm:p-8 space-y-6 bg-white rounded-3xl border-2 border-emerald-300 shadow-xl animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <FileCheck2 className="w-5 h-5 text-emerald-700" />
+                  <span>Document Preview</span>
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Confirm the document is legible before running optical text extraction.
+                </p>
               </div>
 
-              {/* Animated Laser Scan Beam */}
-              {isScanning && <div className="laser-line z-20"></div>}
-
-              {/* Center Content */}
-              <div className="relative my-auto w-full h-[200px] sm:h-[220px] bg-white/10 rounded-2xl border border-white/20 p-4 flex flex-col items-center justify-center text-center overflow-hidden">
-                {isScanning ? (
-                  <div className="space-y-3 flex flex-col items-center z-20 animate-fade-in">
-                    <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center text-white animate-pulse">
-                      <Camera className="w-8 h-8" />
-                    </div>
-                    <span className="text-white font-black text-base sm:text-lg">
-                      Reading document... Please hold still
-                    </span>
-                    <div className="w-48 bg-black/40 rounded-full h-3 overflow-hidden">
-                      <div
-                        className="bg-emerald-400 h-3 rounded-full transition-all duration-200"
-                        style={{ width: `${scanProgress}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-xs text-white/90 font-bold">{scanProgress}% finished</span>
-                  </div>
-                ) : (
-                  <div className="space-y-3 flex flex-col items-center text-white/90 z-10">
-                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-white/20 flex items-center justify-center text-white backdrop-blur-xs shadow-inner">
-                      <Camera className="w-8 h-8 sm:w-9 sm:h-9" />
-                    </div>
-                    <div>
-                      <h3 className="text-base sm:text-lg font-black text-white">Align Document in the Blue Box</h3>
-                      <p className="text-xs text-white/90 max-w-sm mt-1">
-                        Tap "Scan Prescription" below, or choose one of the sample papers to test.
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => handleStartScan(presetTemplates[0])}
-                      variant="primary"
-                      size="sm"
-                      icon={Sparkles}
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                    >
-                      Scan Prescription Now
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-white/80 z-20 font-medium">
-                <span>✓ High resolution capture</span>
-                <span>Auto-detect active</span>
+              <div className="flex items-center gap-2">
+                <Badge variant="default" className="text-xs font-mono bg-slate-100 text-slate-800">
+                  {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
+                </Badge>
               </div>
             </div>
 
-            {/* Quick 1-Click Sample Documents */}
-            <div className="pt-2">
-              <span className="text-xs font-extrabold text-[#052e0a] block mb-2">
-                Or Try with Sample Medical Papers (1-Click):
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {presetTemplates.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => handleStartScan(item)}
-                    className="p-3 bg-emerald-50/60 hover:bg-emerald-100 active:scale-95 text-left rounded-2xl border border-emerald-200 hover:border-[#297006] transition flex flex-col justify-between h-24 cursor-pointer shadow-2xs"
-                  >
-                    <div>
-                      <span className="font-extrabold text-xs text-[#052e0a] block truncate">
-                        📄 {item.doc_type}
-                      </span>
-                      <span className="text-[11px] text-gray-600 line-clamp-1 mt-0.5 font-medium">
-                        {item.title}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-black text-[#297006] mt-1 flex items-center gap-1">
-                      <span>Tap to Test Scan</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Card>
-
-          {/* Right Column: Scanned Results in Plain English */}
-          <div className="lg:col-span-5 space-y-4">
-            <Card className="p-4 sm:p-5 shadow-md border-2 border-emerald-200/80 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-[#297006]" />
-                  <h3 className="font-extrabold text-base text-[#052e0a]">What Was Found on Your Paper</h3>
-                </div>
-                {scannedResult && (
-                  <Badge variant="success">
-                    ✓ {scannedResult.confidence || 'Clearly Read'}
-                  </Badge>
-                )}
-              </div>
-
-              {scannedResult ? (
-                <div className="space-y-3.5 animate-fade-in text-xs">
-                  {/* Document Summary Card */}
-                  <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200 space-y-1">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-[#297006]">
-                      {scannedResult.doc_type}
-                    </span>
-                    <h4 className="font-extrabold text-sm text-gray-900">{scannedResult.title}</h4>
-                    <p className="text-[11px] text-gray-600">
-                      Doctor: {scannedResult.doctor} • {scannedResult.facility}
-                    </p>
-                  </div>
-
-                  {/* Plain Language Diagnosis */}
-                  <div>
-                    <span className="text-gray-700 font-bold block mb-1">Doctor's Diagnosis / Reason:</span>
-                    <p className="bg-emerald-50 text-[#052e0a] p-3 rounded-2xl border border-emerald-200 font-medium leading-relaxed">
-                      {scannedResult.diagnosis}
-                    </p>
-                  </div>
-
-                  {/* Extracted Medicines in Simple Cards */}
-                  {scannedResult.medications && scannedResult.medications.length > 0 && (
-                    <div>
-                      <span className="text-gray-700 font-bold block mb-1.5">Prescribed Medicines Found:</span>
-                      <div className="space-y-2">
-                        {scannedResult.medications.map((med, mIdx) => (
-                          <div key={mIdx} className="p-3 bg-white border border-emerald-300 rounded-2xl shadow-2xs space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="font-black text-sm text-[#052e0a]">💊 {med.name}</span>
-                              <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
-                                {med.dose}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-gray-600 font-medium">
-                              <strong>How to take:</strong> {med.instruction || med.frequency}
-                            </p>
-                            <p className="text-[10px] text-emerald-700 font-bold">
-                              ⏰ When: {med.timing || 'Daily'} for {med.duration}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
+            {/* Visual Preview Box */}
+            <div className="flex flex-col items-center justify-center p-4 bg-slate-100 rounded-2xl border border-slate-200 min-h-[300px] overflow-hidden">
+              {isPdf ? (
+                <div className="w-full flex flex-col items-center space-y-3">
+                  <canvas ref={pdfCanvasRef} className="max-w-full h-auto rounded-lg shadow-md border border-slate-300" />
+                  {pdfTotalPages > 1 && (
+                    <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-full border border-slate-300 text-xs font-bold">
+                      <button
+                        type="button"
+                        onClick={() => changePdfPage(-1)}
+                        disabled={pdfPageNum <= 1}
+                        className="p-1 hover:bg-slate-100 rounded-full disabled:opacity-30"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span>Page {pdfPageNum} of {pdfTotalPages}</span>
+                      <button
+                        type="button"
+                        onClick={() => changePdfPage(1)}
+                        disabled={pdfPageNum >= pdfTotalPages}
+                        className="p-1 hover:bg-slate-100 rounded-full disabled:opacity-30"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
                     </div>
                   )}
-
-                  {/* Navigation links */}
-                  <div className="pt-2 flex flex-col sm:flex-row gap-2">
-                    <Button
-                      to="/summary"
-                      variant="primary"
-                      size="md"
-                      fullWidth
-                      icon={ArrowRight}
-                      iconPosition="right"
-                    >
-                      View in Health Chart
-                    </Button>
-                    <Button
-                      to="/agent"
-                      variant="accent"
-                      size="md"
-                      fullWidth
-                      icon={Sparkles}
-                      iconPosition="left"
-                    >
-                      Ask Assistant
-                    </Button>
-                  </div>
                 </div>
+              ) : filePreviewUrl ? (
+                <img
+                  src={filePreviewUrl}
+                  alt="Scanned Preview"
+                  className="max-h-[460px] w-auto rounded-xl object-contain shadow-md border border-slate-300"
+                />
               ) : (
-                <div className="py-12 text-center text-gray-500 space-y-3">
-                  <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
-                    <Camera className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-gray-700">No Document Scanned Yet</h4>
-                    <p className="text-xs text-gray-500 mt-1 max-w-xs mx-auto">
-                      Tap "Scan Prescription" or pick one of the sample slips on the left to see your medicines.
-                    </p>
-                  </div>
+                <div className="text-center p-8 text-slate-500">
+                  <FileText className="w-12 h-12 mx-auto text-slate-400 mb-2" />
+                  <p className="text-xs font-bold">{selectedFile.name}</p>
                 </div>
               )}
-            </Card>
-          </div>
+            </div>
 
-        </div>
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={resetWorkflow}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <X className="w-4 h-4" /> Choose Different Document
+              </button>
+
+              <button
+                type="button"
+                onClick={startProcessing}
+                className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black transition flex items-center gap-2 shadow-md cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-300" />
+                <span>Scan & Analyze Document →</span>
+              </button>
+            </div>
+          </Card>
+        )}
+
+        {/* ============================================================ */}
+        {/* STEP 3: PROCESSING OCR & CLINICAL RECOGNITION */}
+        {/* ============================================================ */}
+        {step === 3 && (
+          <Card className="p-6 sm:p-10 space-y-6 bg-white rounded-3xl border-2 border-emerald-300 shadow-xl text-center animate-fadeIn">
+            {scanError ? (
+              <div className="space-y-4 py-6">
+                <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Optical Recognition Failed</h3>
+                  <p className="text-xs text-slate-600 max-w-md mx-auto mt-1">
+                    {scanError}
+                  </p>
+                </div>
+                <div className="flex justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={startProcessing}
+                    className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetWorkflow}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                  >
+                    Choose Another File
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6 py-4 max-w-lg mx-auto">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto animate-pulse">
+                  <Activity className="w-8 h-8" />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">
+                    {scanStatusMessage}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Our AI optical engine is cross-checking prescription dosages and allergy safety.
+                  </p>
+                </div>
+
+                {/* Stepped Progress Bar */}
+                <div className="space-y-2">
+                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+                    <div
+                      className="bg-gradient-to-r from-emerald-500 to-teal-600 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${scanProgress}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] font-bold text-slate-500">
+                    <span>{scanProgress}% Completed</span>
+                    <span>Step {scanStepIndex + 1} of 6</span>
+                  </div>
+                </div>
+
+                {/* Sub-steps checklist */}
+                <div className="text-left space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs">
+                  {processingSteps.map((s, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      {idx < scanStepIndex ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : idx === scanStepIndex ? (
+                        <Loader2 className="w-4 h-4 text-emerald-700 animate-spin shrink-0" />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full border border-slate-300 shrink-0 inline-block" />
+                      )}
+                      <span className={idx <= scanStepIndex ? 'font-bold text-slate-900' : 'text-slate-400'}>
+                        {s}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* ============================================================ */}
+        {/* STEP 4: REVIEW RESULTS & CLINICAL FINDINGS */}
+        {/* ============================================================ */}
+        {step === 4 && scannedDoc && (
+          <div className="space-y-5 animate-fadeIn">
+            {/* Allergy Warning Banner (if detected) */}
+            {allergyAlert && (
+              <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-400 text-rose-950 flex items-start gap-3 shadow-md animate-bounce-short">
+                <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-rose-900">
+                    ⚠️ CRITICAL ALLERGY CONTRAINDICATION DETECTED
+                  </h4>
+                  <p className="text-xs text-rose-800 font-medium leading-relaxed">
+                    {allergyMessage}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Document Meta Header Card */}
+            <Card className="p-5 sm:p-6 bg-white rounded-3xl border-2 border-emerald-300 shadow-md space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <Badge variant="default" className="text-xs font-black uppercase bg-emerald-100 text-emerald-900 px-3 py-1">
+                    {scannedDoc.doc_type || 'Prescription'}
+                  </Badge>
+                  <Badge variant="success" className="text-xs font-bold bg-[#297006] text-white px-2.5 py-0.5">
+                    Confidence: {scannedDoc.confidence || '95%'}
+                  </Badge>
+                </div>
+                <span className="text-xs font-bold text-slate-500">
+                  Date: {scannedDoc.date || new Date().toISOString().split('T')[0]}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Prescribing Doctor</span>
+                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
+                    {scannedDoc.doctor || 'Not specified on document'}
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Hospital / Clinic</span>
+                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
+                    {scannedDoc.facility || 'Not specified on document'}
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Clinical Diagnosis / Reason</span>
+                  <p className="font-extrabold text-slate-900 text-sm mt-0.5">
+                    {scannedDoc.diagnosis || 'General Consultation / Clinical Slip'}
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Extracted Medications Table */}
+            {scannedDoc.medications && scannedDoc.medications.length > 0 && (
+              <Card className="p-5 sm:p-6 bg-white rounded-3xl border-2 border-emerald-200 shadow-md space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <Heart className="w-5 h-5 text-emerald-700" />
+                  <h3 className="font-black text-sm sm:text-base text-slate-900">
+                    Recognized Medications ({scannedDoc.medications.length})
+                  </h3>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-400 text-[10px] uppercase font-bold">
+                        <th className="py-2 px-2">Medicine</th>
+                        <th className="py-2 px-2">Dosage</th>
+                        <th className="py-2 px-2">Frequency</th>
+                        <th className="py-2 px-2">Timing</th>
+                        <th className="py-2 px-2">Instruction</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {scannedDoc.medications.map((med, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-2 font-black text-slate-900">
+                            {med.name}
+                          </td>
+                          <td className="py-2.5 px-2 font-bold text-emerald-800">
+                            {med.dose}
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-600">
+                            {med.frequency}
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-600">
+                            {med.timing || 'Morning'}
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-500 italic">
+                            {med.instruction || 'Take with water'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+
+            {/* Extracted Lab Results Table */}
+            {scannedDoc.lab_results && scannedDoc.lab_results.length > 0 && (
+              <Card className="p-5 sm:p-6 bg-white rounded-3xl border-2 border-teal-200 shadow-md space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <Activity className="w-5 h-5 text-teal-700" />
+                  <h3 className="font-black text-sm sm:text-base text-slate-900">
+                    Diagnostic Lab Tests ({scannedDoc.lab_results.length})
+                  </h3>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-400 text-[10px] uppercase font-bold">
+                        <th className="py-2 px-2">Test Name</th>
+                        <th className="py-2 px-2">Observed Value</th>
+                        <th className="py-2 px-2">Reference Range</th>
+                        <th className="py-2 px-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {scannedDoc.lab_results.map((lab, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-2 font-black text-slate-900">{lab.test_name}</td>
+                          <td className="py-2.5 px-2 font-bold text-slate-800">{lab.value} {lab.unit}</td>
+                          <td className="py-2.5 px-2 text-slate-500">{lab.reference_range}</td>
+                          <td className="py-2.5 px-2">
+                            <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                              lab.is_abnormal
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {lab.status || (lab.is_abnormal ? 'Abnormal' : 'Normal')}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+
+            {/* Extracted Raw Text Accordion */}
+            {scannedDoc.extracted_text && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setShowRawText(!showRawText)}
+                    className="text-xs font-bold text-slate-700 flex items-center gap-1.5 hover:text-slate-900 cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4 text-slate-500" />
+                    <span>{showRawText ? 'Hide Raw OCR Text' : 'View Raw Extracted Text'}</span>
+                    {showRawText ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {showRawText && (
+                    <button
+                      type="button"
+                      onClick={copyRawText}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 transition flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedRawText ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedRawText ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {showRawText && (
+                  <pre className="mt-2 p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl whitespace-pre-wrap leading-relaxed max-h-52 overflow-y-auto">
+                    {scannedDoc.extracted_text}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {/* Step 4 Actions: Confirm / Retake */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
+              <button
+                type="button"
+                onClick={resetWorkflow}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <X className="w-4 h-4" /> Discard & Try Again
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmDocument}
+                disabled={isConfirming}
+                className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black transition flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-70"
+              >
+                {isConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                <span>{isConfirming ? 'Saving to Records...' : 'Confirm & Save to Medical Records →'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* STEP 5: CONFIRMED & COMMITTED */}
+        {/* ============================================================ */}
+        {step === 5 && (
+          <Card className="p-8 sm:p-12 text-center space-y-6 bg-white rounded-3xl border-2 border-emerald-400 shadow-2xl animate-fadeIn">
+            <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-inner">
+              <CheckCircle2 className="w-12 h-12" />
+            </div>
+
+            <div className="space-y-1.5 max-w-md mx-auto">
+              <h2 className="text-2xl font-black text-slate-900">
+                Document Successfully Saved!
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600">
+                Your medical slip has been parsed and committed to your Electronic Health Record.
+              </p>
+            </div>
+
+            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-950 font-semibold max-w-md mx-auto space-y-1">
+              <p>✓ Prescribed medications added to your daily schedule</p>
+              <p>✓ Document archived in your permanent clinical records</p>
+              <p>✓ Allergy contraindications verified</p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <Link
+                to="/summary"
+                className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-md transition"
+              >
+                View My Health Summary →
+              </Link>
+              <Link
+                to="/records"
+                className="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition"
+              >
+                View All Medical Records
+              </Link>
+              <button
+                type="button"
+                onClick={resetWorkflow}
+                className="px-5 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition cursor-pointer"
+              >
+                Scan Another Document
+              </button>
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

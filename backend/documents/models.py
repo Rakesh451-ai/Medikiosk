@@ -32,7 +32,7 @@ class MedicalDocument(models.Model):
         blank=True,
         related_name='patient_documents'
     )
-    patient_identifier = models.CharField(max_length=64, default='MK-78294', db_index=True)
+    patient_identifier = models.CharField(max_length=64, default='', blank=True, db_index=True)
     title = models.CharField(max_length=255, default='Medical Document')
     file = models.FileField(upload_to='documents/%Y/%m/%d/', blank=True, null=True)
     file_url = models.CharField(max_length=500, blank=True, default='')

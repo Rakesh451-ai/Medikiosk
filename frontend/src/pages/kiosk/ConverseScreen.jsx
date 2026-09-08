@@ -43,7 +43,7 @@ export default function ConverseScreen({ patientSession, onComplete }) {
 
   const initSession = async (ayushMode = false) => {
     const sessionRes = await api.createIntakeSession({
-      patientId: patientSession?.patientId || 'MK-78294',
+      patientId: patientSession?.patientId || '',
       department: ayushMode ? 'AYUSH / Ayurveda Department' : 'General Medicine',
       language: patientSession?.language || 'en',
       isAyush: ayushMode
@@ -194,7 +194,7 @@ export default function ConverseScreen({ patientSession, onComplete }) {
               )}
             </div>
             <div className="text-xs text-slate-500 font-medium">
-              Patient: <strong className="text-slate-700">{patientSession?.name || 'Sarah Jenkins'}</strong> ({patientSession?.patientId || 'MK-78294'})
+              Patient: <strong className="text-slate-700">{patientSession?.name || 'Outpatient'}</strong> {patientSession?.patientId ? `(${patientSession.patientId})` : ''}
             </div>
           </div>
         </div>

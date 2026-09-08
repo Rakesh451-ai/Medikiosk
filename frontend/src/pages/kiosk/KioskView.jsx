@@ -180,12 +180,14 @@ export default function KioskView() {
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left text-sm space-y-2 text-slate-700">
                 <div className="flex justify-between">
                   <span className="font-bold">Patient Name:</span>
-                  <span>{patientSession?.name || 'Sarah Jenkins'}</span>
+                  <span>{patientSession?.name || 'Outpatient'}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="font-bold">ABHA ID:</span>
-                  <span className="font-mono text-emerald-700 font-bold">{patientSession?.mockAbhaId || '14-8921-3490-1284'}</span>
-                </div>
+                {patientSession?.mockAbhaId && (
+                  <div className="flex justify-between">
+                    <span className="font-bold">ABHA ID:</span>
+                    <span className="font-mono text-emerald-700 font-bold">{patientSession.mockAbhaId}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="font-bold">Summary Status:</span>
                   <span className="text-emerald-700 font-bold">Transmitted to Doctor Screen</span>

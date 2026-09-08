@@ -49,9 +49,9 @@ class Command(BaseCommand):
         for speaker, text, entities in turns:
             ConversationTurn.objects.create(
                 session=session,
-                speaker=speaker,
+                sender=speaker.lower(),
                 text=text,
-                entities_extracted=entities
+                extracted_entities=entities
             )
 
         # 4. Scanned Medical Document with OCR (Module B)
@@ -63,19 +63,10 @@ class Command(BaseCommand):
                 'session': session,
                 'title': 'City Clinic Prior Prescription (Dr. Mehta)',
                 'file_url': '/media/documents/sample_rx_8891.pdf',
-                'doc_type': 'PRESCRIPTION',
-                'ocr_status': 'COMPLETED',
+                'doc_type': 'prescription',
+                'ocr_status': 'completed',
                 'celery_task_id': 'celery-ocr-mock-uuid-8891',
                 'raw_text': "CITY CLINIC HEALTHCARE\nPatient: Sarah Jenkins | Age: 38F\nRx:\n1. Tab Augmentin 625mg (Amoxicillin + Clavulanate) - 1 tab TDS x 5 days\n2. Tab Paracetamol 650mg - SOS fever\n3. Syp Ascoril-D 10ml TDS",
-                'extracted_entities': {
-                    "medications": [
-                        {"name": "Augmentin 625mg", "active_ingredients": ["Amoxicillin", "Clavulanic Acid"], "frequency": "1 TDS", "days": 5},
-                        {"name": "Paracetamol 650mg", "frequency": "SOS", "indication": "fever"},
-                        {"name": "Ascoril-D Cough Syrup", "dosage": "10ml", "frequency": "TDS"}
-                    ],
-                    "prescribing_doctor": "Dr. Mehta",
-                    "clinic_name": "City Clinic Healthcare"
-                }
             }
         )
 
@@ -86,37 +77,22 @@ class Command(BaseCommand):
                 'patient': patient_user,
                 'patient_identifier': 'MK-78294',
                 'session': session,
-                'status': 'READY',
-                'chief_complaints': [
-                    "Productive cough with purulent greenish sputum x 5 days",
-                    "Fever (intermittent, documented up to 101.4 F)",
-                    "Exertional shortness of breath when walking or climbing stairs"
-                ],
-                'history_of_present_illness': (
+                'status': 'CONFIRMED',
+                'chief_complaint': "Productive cough with purulent greenish sputum x 5 days, intermittent fever up to 101.4 F, exertional shortness of breath",
+                'hpi': (
                     "Patient is a 38-year-old female presenting with 5 days of worsening productive cough "
                     "with greenish-yellow phlegm. Reports low-grade to moderate fever (101.4 F) managed with OTC paracetamol. "
                     "Noticed shortness of breath upon mild exertion over the last 24 hours. "
                     "Was prescribed Augmentin 625mg at another clinic yesterday but has NOT started taking it yet."
                 ),
-                'past_medical_history': [
-                    "Mild childhood bronchial asthma (inactive)",
-                    "No hypertension or diabetes mellitus"
-                ],
-                'current_medications': [
+                'past_medical_surgical_history': "Mild childhood bronchial asthma (inactive). No hypertension or diabetes mellitus.",
+                'drug_history': [
                     {"name": "Paracetamol 650mg", "dosage": "1 tab PRN", "adherence": "Occasional"},
                     {"name": "Prescribed Augmentin 625mg", "status": "HOLD / CONTRAINDICATED (Penicillin class)"}
                 ],
                 'allergies': [
                     {"substance": "Penicillin & Beta-lactams", "reaction": "Severe urticaria & facial edema (anaphylactoid)", "severity": "CRITICAL"}
                 ],
-                'vitals': {
-                    "bp": "118/76 mmHg",
-                    "pulse": "104 bpm (mild tachycardia)",
-                    "temp": "101.2 F",
-                    "spo2": "95% on room air",
-                    "resp_rate": "21 /min"
-                },
-                'doctor_notes': 'Pending physical chest auscultation. Flagged: Contraindicated antibiotic prescriber alert active.'
             }
         )
 
@@ -128,9 +104,8 @@ class Command(BaseCommand):
                 'patient_identifier': 'MK-78294',
                 'session': session,
                 'severity': 'CRITICAL',
-                'category': 'DRUG_CONTRAINDICATION',
                 'trigger_reason': 'Prescribed Augmentin (Amoxicillin) with documented PENICILLIN ANAPHYLAXIS allergy.',
-                'description': 'Scanned prescription contains Amoxicillin+Clavulanate. Patient reported severe allergic hives and facial swelling to Penicillin during intake.',
+                'reason': 'Scanned prescription contains Amoxicillin+Clavulanate. Patient reported severe allergic hives and facial swelling to Penicillin during intake.',
                 'vitals_snapshot': {
                     "pulse": "104 bpm",
                     "spo2": "95%",
@@ -183,13 +158,11 @@ class Command(BaseCommand):
             defaults={
                 'patient': patient_user,
                 'patient_identifier': 'MK-78294',
-                'purpose': 'CARE_CONSULTATION',
-                'status': 'GRANTED',
+                'purpose': 'share_hospital',
+                'granted': True,
                 'hip_id': 'IN-HOSP-001',
                 'hiu_id': 'IN-HIU-MEDIKIOSK',
-                'fhir_resource_type': 'Bundle/Composition',
                 'mock_fhir_bundle': mock_fhir,
-                'expires_at': timezone.now() + datetime.timedelta(days=30),
             }
         )
 

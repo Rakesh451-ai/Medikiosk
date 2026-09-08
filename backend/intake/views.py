@@ -25,7 +25,13 @@ class CreateIntakeSessionView(APIView):
         serializer = StartIntakeSessionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        patient_id = serializer.validated_data.get('patient_id', 'MK-78294')
+        patient_id = serializer.validated_data.get('patient_id', '')
+        if not patient_id and request.user.is_authenticated:
+            profile = getattr(request.user, 'patient_profile', None)
+            patient_id = (profile.mock_abha_id if profile else None) or request.user.username
+        if not patient_id:
+            patient_id = 'Patient-Intake'
+
         department = serializer.validated_data.get('department', 'General Medicine')
         language = serializer.validated_data.get('language', 'en')
         is_ayush = serializer.validated_data.get('is_ayush_enabled', False)
@@ -35,6 +41,7 @@ class CreateIntakeSessionView(APIView):
             is_ayush = True
 
         session = IntakeSession.objects.create(
+            patient=request.user if request.user.is_authenticated else None,
             patient_identifier=patient_id,
             department=department,
             language=language,
