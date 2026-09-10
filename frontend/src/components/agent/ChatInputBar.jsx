@@ -23,8 +23,8 @@ export function ChatInputBar({
   const placeholderText = isAgentTyping
     ? (isHindi ? "असिस्टेंट सोच रहा है..." : "Assistant is thinking...")
     : (isHindi 
-        ? "दवाइयों, खुराक या टेस्ट परिणामों के बारे में पूछें या बोलें..." 
-        : "Ask about your medicines, dosage, or test results...");
+        ? "सामान्य स्वास्थ्य प्रश्न पूछें, या दवाओं व रिपोर्ट के बारे में बात करें..." 
+        : "Ask any health question, or inquire about your medicines and vitals...");
 
   const handleSubmit = (e) => {
     e.preventDefault();

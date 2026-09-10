@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, User, Volume2, StopCircle, PhoneCall, AlertTriangle } from 'lucide-react';
+import { Bot, User, Volume2, StopCircle, PhoneCall, AlertTriangle, BookOpen, FileText, Sparkles } from 'lucide-react';
 
 export function ChatMessageItem({
   message,
@@ -11,6 +11,14 @@ export function ChatMessageItem({
   const isAgent = message.sender === 'agent';
   const isCritical = message.urgency === 'critical' || message.is_emergency;
   const isWarning = message.urgency === 'warning';
+
+  const queryMode = message.query_mode || (
+    message.text?.toLowerCase().includes('based on your records')
+      ? 'personal'
+      : message.text?.toLowerCase().includes('in general')
+        ? 'general'
+        : 'general'
+  );
 
   const formattedTime = message.time || (message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
 
@@ -49,6 +57,28 @@ export function ChatMessageItem({
               : 'bg-gradient-to-br from-emerald-700 to-teal-800 text-white rounded-br-xs shadow-emerald-900/10'
           }`}
         >
+          {/* Subtle Context Indicator Badge for Agent Responses */}
+          {isAgent && !isCritical && (
+            <div className="mb-2">
+              {queryMode === 'personal' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/70 text-emerald-800 border border-emerald-200/70">
+                  <FileText className="w-3 h-3 text-emerald-700" />
+                  Based on Your Records
+                </span>
+              ) : queryMode === 'mixed' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-100/70 text-teal-800 border border-teal-200/70">
+                  <Sparkles className="w-3 h-3 text-teal-700" />
+                  General & Records
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200/80">
+                  <BookOpen className="w-3 h-3 text-slate-600" />
+                  General Health
+                </span>
+              )}
+            </div>
+          )}
+
           <p className="whitespace-pre-line leading-relaxed">{message.text}</p>
 
           {/* Agent Action Bar (Read Aloud & Emergency Dial) */}

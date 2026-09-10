@@ -1,6 +1,10 @@
 import logging
+import datetime
+from django.db import models
+from django.utils import timezone
 from intake.models import IntakeSession, ClinicalHistoryDraft
 from documents.models import MedicalDocument, ExtractedRecord
+from accounts.models import PatientProfile, PatientMedication, VitalReading
 from summary.models import PhysicianSummary
 
 logger = logging.getLogger(__name__)
@@ -9,6 +13,7 @@ def generate_physician_summary_from_intake(session: IntakeSession) -> PhysicianS
     """
     Module C: Pulls Module A ClinicalHistoryDraft and Module B ExtractedRecords
     and synthesizes a standardized bilingual clinical note for physician review.
+    Preserved for session-based intake and backwards compatibility.
     """
     draft = getattr(session, 'clinical_draft', None)
     patient_id = session.patient_identifier
@@ -38,7 +43,7 @@ def generate_physician_summary_from_intake(session: IntakeSession) -> PhysicianS
             procedures_list.append(r.structured_data)
 
     # 2. Extract from Module A Draft
-    chief_complaint = draft.chief_complaint if draft else "Acute productive cough and fever"
+    chief_complaint = draft.chief_complaint if draft and draft.chief_complaint else "Clinical Evaluation"
     
     # Format HPI
     hpi_parts = []
@@ -46,8 +51,7 @@ def generate_physician_summary_from_intake(session: IntakeSession) -> PhysicianS
         for k, v in draft.hpi.items():
             hpi_parts.append(f"{k.capitalize()}: {v}")
     hpi_text = "; ".join(hpi_parts) if hpi_parts else (
-        "Patient presents with a 5-day history of worsening cough productive of purulent sputum, "
-        "intermittent fever, and mild exertional breathlessness."
+        "Patient intake completed. Clinical notes compiled from patient consultation and records."
     )
 
     # Past Medical History
@@ -60,20 +64,20 @@ def generate_physician_summary_from_intake(session: IntakeSession) -> PhysicianS
 
     # Drug History & Allergies
     drug_history = medications_list or (draft.drug_history if draft else [])
-    allergies = draft.allergies if draft and draft.allergies else ["Penicillin (Severe hives & edema)"]
+    allergies = draft.allergies if draft and draft.allergies else []
 
     # Personal history
-    pers_hist = "Vegetarian diet, non-smoker, denies alcohol use."
+    pers_hist = ""
     if draft and draft.personal_history:
         pers_hist = f"Diet: {draft.personal_history.get('diet', 'Standard')}, Smoking: {draft.personal_history.get('smoking', 'None')}"
 
     # Bilingual Summary (Hindi & English)
     bilingual = {
         "hi": {
-            "chief_complaint": "बलगम वाली खांसी, बुखार और सांस लेने में हल्की तकलीफ (5 दिन से)",
-            "hpi": "मरीज़ को 5 दिनों से खांसी और बलगम की शिकायत है। बुखार पैरासिटामोल से कम होता है।",
-            "allergies": "पेनिसिलिन से गंभीर एलर्जी (अर्टिकेरिया और सूजन का खतरा)",
-            "doctor_action": "ऑगमेंटिन रोकें, वैकल्पिक एंटीबायोटिक (एज़िथ्रोमाइसिन) दें।"
+            "chief_complaint": chief_complaint,
+            "hpi": "मरीज़ के मेडिकल रिकॉर्ड के आधार पर सारांश तैयार किया गया है।",
+            "allergies": ", ".join(allergies) if allergies else "कोई ज्ञात एलर्जी दर्ज नहीं है।",
+            "doctor_action": "निर्धारित दवाओं और सावधानियों का पालन करें।"
         }
     }
 
@@ -91,12 +95,21 @@ def generate_physician_summary_from_intake(session: IntakeSession) -> PhysicianS
             'allergies': allergies,
             'family_history': "No known premature coronary artery disease in first-degree relatives.",
             'personal_history': pers_hist,
-            'review_of_systems': "Respiratory: Cough, purulent sputum (+), Dyspnea (+). CVS: Tachycardia (+), Chest pain (-). GI: Normal appetite.",
+            'review_of_systems': "Review of systems documented in patient EHR.",
             'investigations': investigations_list,
             'previous_procedures': procedures_list,
             'regional_language': session.language or 'hi',
             'bilingual_summary': bilingual,
-            'doctor_notes': 'Pending chest examination. Red-flag antibiotic contraindication active.'
+            'doctor_notes': 'Clinical review notes.'
         }
     )
     return summary
+
+
+def build_patient_health_summary(user) -> dict:
+    """
+    Dynamically aggregates the patient's full medical summary dashboard purely from the
+    authenticated patient's actual database records via PatientSummaryService.
+    """
+    from api.services.patient_summary_service import PatientSummaryService
+    return PatientSummaryService.build_summary(user)

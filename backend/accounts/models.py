@@ -358,6 +358,7 @@ class ChatMessage(models.Model):
     urgency = models.CharField(max_length=20, default='normal')
     quick_replies = models.JSONField(default=list, blank=True)
     is_emergency = models.BooleanField(default=False)
+    query_mode = models.CharField(max_length=20, default='general', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

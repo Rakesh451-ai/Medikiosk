@@ -317,10 +317,85 @@ class MedicalParser:
         allergy_match = re.search(r'(?:Allergies|Allergic to|Allergy)[:\-]\s*([^\n\r]+)', text, re.IGNORECASE)
         if allergy_match:
             raw_all = allergy_match.group(1).strip()
-            parts = [p.strip() for p in re.split(r'[,;/]', raw_all) if p.strip() and p.strip().lower() not in ('none', 'nil', 'n/a', 'no known', 'no')]
+            parts = [p.strip() for p in re.split(r'[,;/]', raw_all) if p.strip() and p.strip().lower() not in ('none', 'nil', 'n/a', 'no known', 'no', 'none known')]
             extracted_allergies.extend(parts)
 
-        # 11. Genuine Confidence Scoring
+        # 11. Chronic Conditions Extraction
+        extracted_chronic_conditions = []
+        chronic_patterns = [
+            r'(?:Chronic Condition[s]?|Known Case Of|k/c/o|Underlying Condition[s]?|Past Medical History)[:\-]\s*([^\n\r]+)',
+        ]
+        for cp in chronic_patterns:
+            cm = re.search(cp, text, re.IGNORECASE)
+            if cm:
+                raw_c = cm.group(1).strip()
+                c_parts = [p.strip() for p in re.split(r'[,;/]', raw_c) if p.strip() and p.strip().lower() not in ('none', 'nil', 'n/a', 'no', 'nad')]
+                extracted_chronic_conditions.extend(c_parts)
+
+        # Keyword checks for common chronic conditions
+        common_chronic = [
+            ('Type 2 Diabetes', r'\b(?:type\s*2\s*diabetes|t2dm|diabetes\s*mellitus)\b'),
+            ('Type 1 Diabetes', r'\b(?:type\s*1\s*diabetes|t1dm)\b'),
+            ('Hypertension', r'\b(?:hypertension|essential\s*hypertension|htn)\b'),
+            ('Asthma', r'\b(?:bronchial\s*asthma|asthma)\b'),
+            ('COPD', r'\b(?:copd|chronic\s*obstructive\s*pulmonary\s*disease)\b'),
+            ('Hypothyroidism', r'\b(?:hypothyroidism|hypothyroid)\b'),
+            ('Hyperthyroidism', r'\b(?:hyperthyroidism|hyperthyroid)\b'),
+            ('Coronary Artery Disease', r'\b(?:coronary\s*artery\s*disease|cad|ischaemic\s*heart\s*disease)\b'),
+            ('Chronic Kidney Disease', r'\b(?:chronic\s*kidney\s*disease|ckd)\b'),
+            ('Dyslipidemia', r'\b(?:dyslipidemia|hyperlipidemia|hypercholesterolemia)\b'),
+        ]
+        for label, pat in common_chronic:
+            if re.search(pat, text, re.IGNORECASE):
+                if not any(label.lower() in ec.lower() for ec in extracted_chronic_conditions):
+                    extracted_chronic_conditions.append(label)
+
+        # 12. Surgeries / Procedures Extraction
+        extracted_procedures = []
+        surg_patterns = [
+            r'(?:Previous Surger(?:y|ies)|Surgical History|Past Surger(?:y|ies)|Past Procedure[s]?|Procedure[s]? Done|Surgical Note[s]?|Underwent)[:\-]\s*([^\n\r]+)'
+        ]
+        for sp in surg_patterns:
+            sm = re.search(sp, text, re.IGNORECASE)
+            if sm:
+                raw_s = sm.group(1).strip()
+                s_parts = [p.strip() for p in re.split(r'[,;/]', raw_s) if p.strip() and p.strip().lower() not in ('none', 'nil', 'n/a', 'no surgeries', 'no prior surgery', 'nil significant', 'none reported')]
+                extracted_procedures.extend(s_parts)
+
+        common_procedures = [
+            ('Appendectomy', r'\bappendectomy\b'),
+            ('Cholecystectomy', r'\bcholecystectomy\b'),
+            ('CABG / Heart Bypass', r'\b(?:cabg|coronary\s*artery\s*bypass)\b'),
+            ('Coronary Angioplasty / Stent', r'\b(?:angioplasty|pci|ptca|stent\s*placement)\b'),
+            ('Cataract Surgery', r'\bcataract\s*(?:surgery|extraction|phaco)\b'),
+            ('Cesarean Section (C-Section)', r'\b(?:cesarean|c-section|lscs)\b'),
+            ('Hernia Repair', r'\b(?:hernia\s*repair|hernioplasty|herniorrhaphy)\b'),
+            ('Knee Replacement', r'\b(?:knee\s*replacement|tkr)\b'),
+            ('Hip Replacement', r'\b(?:hip\s*replacement|thr)\b'),
+            ('Tonsillectomy', r'\btonsillectomy\b'),
+            ('Thyroidectomy', r'\bthyroidectomy\b'),
+        ]
+        for label, pat in common_procedures:
+            if re.search(pat, text, re.IGNORECASE):
+                if not any(label.lower() in ep.lower() for ep in extracted_procedures):
+                    extracted_procedures.append(label)
+
+        # 13. Hospitalization / Admission Details (e.g. from Discharge Summaries)
+        hospitalization = None
+        adm_m = re.search(r'(?:Date\s*of\s*Admission|Admission\s*Date|Admitted\s*on)[:\-]?\s*([A-Za-z0-9\s,\/\-\.]+)', text, re.IGNORECASE)
+        dis_m = re.search(r'(?:Date\s*of\s*Discharge|Discharge\s*Date|Discharged\s*on)[:\-]?\s*([A-Za-z0-9\s,\/\-\.]+)', text, re.IGNORECASE)
+        if doc_type == "Discharge Summary" or adm_m or dis_m:
+            adm_date = adm_m.group(1).split('\n')[0].strip() if adm_m else ""
+            dis_date = dis_m.group(1).split('\n')[0].strip() if dis_m else doc_date
+            hospitalization = {
+                "facility": facility or "Medical Facility",
+                "admission_date": adm_date,
+                "discharge_date": dis_date,
+                "diagnosis": diagnosis or impression or findings or "Inpatient Care",
+                "doctor": doctor or ""
+            }
+
+        # 14. Genuine Confidence Scoring
         words = text.split()
         word_count = len(words)
         matched_indicators = len(medications) + len(lab_results) + (1 if doctor else 0) + (1 if diagnosis else 0) + (1 if patient_name else 0)
@@ -351,6 +426,9 @@ class MedicalParser:
             "lab_results": lab_results,
             "vitals": vitals,
             "extracted_allergies": extracted_allergies,
+            "chronic_conditions": extracted_chronic_conditions,
+            "procedures": extracted_procedures,
+            "hospitalization": hospitalization,
             "confidence": confidence,
             "raw_text": text
         }

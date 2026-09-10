@@ -27,64 +27,88 @@ const SUPPORTED_LANGUAGES = [
 
 const QUICK_REPLIES_BY_LANG = {
   'en-IN': [
+    "💧 Signs of dehydration",
+    "🥗 Healthy diet tips",
+    "😴 Sleep advice",
+    "🏃 Exercise guidance",
+    "🩺 Common symptoms",
+    "🩺 What is high blood pressure?",
     "💊 When should I take my medicines?",
-    "🩺 Are my vitals normal today?",
-    "⚠️ Are my medicines safe with my allergies?",
-    "🏥 How do I see a doctor or nurse?"
+    "🩺 Are my vitals normal today?"
   ],
   'hi-IN': [
+    "💧 डिहाइड्रेशन (पानी की कमी) के लक्षण",
+    "🥗 स्वस्थ आहार के टिप्स",
+    "😴 बेहतर नींद की सलाह",
+    "🏃 व्यायाम मार्गदर्शन",
+    "🩺 सामान्य लक्षण",
+    "🩺 हाई बीपी का क्या मतलब है?",
     "💊 मुझे अपनी दवाइयाँ कब लेनी चाहिए?",
-    "🩺 क्या मेरे वाइटल्स आज सामान्य हैं?",
-    "⚠️ क्या मेरी दवाइयाँ मेरी एलर्जी के साथ सुरक्षित हैं?",
-    "🏥 मुझे डॉक्टर या नर्स से कैसे परामर्श लेना चाहिए?"
+    "🩺 क्या मेरे वाइटल्स आज सामान्य हैं?"
   ],
   'bn-IN': [
+    "💧 ডিহাইড্রেশনের লক্ষণ কি?",
+    "🥗 স্বাস্থ্যকর খাবারের টিপস",
+    "😴 ভালো ঘুমের পরামর্শ",
+    "🩺 উচ্চ রক্তচাপ কি?",
     "💊 আমার কখন ওষুধ খাওয়া উচিত?",
-    "🩺 আজ আমার ভাইটালס কি স্বাভাবিক?",
-    "⚠️ আমার ওষুধের কি কোনো অ্যালার্জি ঝুঁকি আছে?",
-    "🏥 আমি কীভাবে ডাক্তারের সাথে দেখা করব?"
+    "🩺 আজ আমার ভাইটালס কি স্বাভাবিক?"
   ],
   'mr-IN': [
+    "💧 डिहायड्रेशनची लक्षणे काय आहेत?",
+    "🥗 निरोगी आहाराच्या टिप्स",
+    "😴 चांगल्या झोपेसाठी सल्ला",
+    "🩺 उच्च रक्तदाब म्हणजे काय?",
     "💊 मी माझी औषधे कधी घ्यावीत?",
-    "🩺 आज माझे व्हायटल्स सामान्य आहेत का?",
-    "⚠️ औषधे माझ्या ऍलर्जीसाठी सुरक्षित आहेत का?",
-    "🏥 डॉक्टरांचा सल्ला कसा घ्यावा?"
+    "🩺 आज माझे व्हायटल्स सामान्य आहेत का?"
   ],
   'gu-IN': [
+    "💧 ડિહાઇડ્રેશનના લક્ષણો",
+    "🥗 તંદુરસ્ત આહારની ટિપ્સ",
+    "😴 સારી ઊંઘ માટે સલાહ",
+    "🩺 હાઈ બ્લડ પ્રેશર એટલે શું?",
     "💊 મારે મારી દવાઓ ક્યારે લેવી જોઈએ?",
-    "🩺 શું મારા વાઇટલ્સ આજે સામાન્ય છે?",
-    "⚠️ શું મારી દવાઓ એલર્જી સાથે સુરક્ષિત છે?",
-    "🏥 મારે ડૉક્ટર સાથે કેવી રીતે વાત કરવી?"
+    "🩺 શું મારા વાઇટલ્સ આજે સામાન્ય છે?"
   ],
   'ta-IN': [
+    "💧 நீரிழப்புக்கான அறிகுறிகள்",
+    "🥗 ஆரோக்கியமான உணவு குறிப்புகள்",
+    "😴 சிறந்த தூக்கத்திற்கான ஆலோசனை",
+    "🩺 உயர் இரத்த அழுத்தம் என்றால் என்ன?",
     "💊 நான் எப்போது மருந்துகளை உட்கொள்ள வேண்டும்?",
-    "🩺 எனது உடல்நிலைக் குறியீடுகள் இயல்பானதா?",
-    "⚠️ ஒவ்வாமைகளுக்கு மருந்துகள் பாதுகாப்பானவையா?",
-    "🏥 மருத்துவரை எவ்வாறு அணுகுவது?"
+    "🩺 எனது உடல்நிலைக் குறியீடுகள் இயல்பானதா?"
   ],
   'te-IN': [
+    "💧 డీహైడ్రేషన్ లక్షణాలు",
+    "🥗 ఆరోగ్యకరమైన ఆహార చిట్కాలు",
+    "😴 మంచి నిద్ర కోసం సలహాలు",
+    "🩺 అధిక రక్తపోటు అంటే ఏమిటి?",
     "💊 నేను నా మందులను ఎప్పుడు తీసుకోవాలి?",
-    "🩺 నా వైటల్స్ ఈ రోజు సాధారణంగా ఉన్నాయా?",
-    "⚠️ అలెర్జీలతో నా మందులు సురక్షితమేనా?",
-    "🏥 నేను వైద్యుడిని ఎలా సంప్రదించాలి?"
+    "🩺 నా వైటల్స్ ఈ రోజు సాధారణంగా ఉన్నాయా?"
   ],
   'kn-IN': [
+    "💧 ನಿರ್ಜಲೀಕರಣದ ಲಕ್ಷಣಗಳು",
+    "🥗 ಆರೋಗ್ಯಕರ ಆಹಾರದ ಸಲಹೆಗಳು",
+    "😴 ಉತ್ತಮ ನಿದ್ರೆಯ ಸಲಹೆ",
+    "🩺 ಅಧಿಕ ರಕ್ತದೊತ್ತಡ ಎಂದರೇನು?",
     "💊 ನಾನು ನನ್ನ ಔಷಧಿಗಳನ್ನು ಯಾವಾಗ ತೆಗೆದುಕೊಳ್ಳಬೇಕು?",
-    "🩺 ಇಂದು ನನ್ನ ವೈಟಲ್ಸ್ ಸಾಮಾನ್ಯವಾಗಿದೆಯೇ?",
-    "⚠️ ಅಲರ್ಜಿಗಳೊಂದಿಗೆ ಔಷಧಿಗಳು ಸುರಕ್ಷಿತವೇ?",
-    "🏥 ವೈದ್ಯರನ್ನು ಹೇಗೆ ಸಂಪರ್ಕಿಸುವುದು?"
+    "🩺 ಇಂದು ನನ್ನ ವೈಟಲ್ಸ್ ಸಾಮಾನ್ಯವಾಗಿದೆಯೇ?"
   ],
   'pa-IN': [
+    "💧 ਡੀਹਾਈਡ੍ਰੇਸ਼ਨ ਦੇ ਲੱਛਣ",
+    "🥗 ਸਿਹਤਮੰਦ ਖੁਰਾਕ ਸੁਝਾਅ",
+    "😴 ਚੰਗੀ ਨੀਂਦ ਦੀ ਸਲਾਹ",
+    "🩺 ਹਾਈ ਬਲੱਡ ਪ੍ਰੈਸ਼ਰ ਦਾ ਕੀ ਅਰਥ ਹੈ?",
     "💊 ਮੈਨੂੰ ਦਵਾਈਆਂ ਕਦੋਂ ਲੈਣੀਆਂ ਚਾਹੀਦੀਆਂ ਹਨ?",
-    "🩺 ਕੀ ਮੇਰੇ ਵਾਈਟਲ ਅੱਜ ਆਮ ਹਨ?",
-    "⚠️ ਕੀ ਮੇਰੀਆਂ ਦਵਾਈਆਂ ਐਲਰਜੀ ਲਈ ਸੁਰੱਖਿਅਤ ਹਨ?",
-    "🏥 ਡਾਕਟਰ ਨੂੰ ਕਿਵੇਂ ਮਿਲਣਾ ਹੈ?"
+    "🩺 ਕੀ ਮੇਰੇ ਵਾਈਟਲ ਅੱਜ ਆਮ ਹਨ?"
   ],
   'ml-IN': [
+    "💧 നിർജ്ജലീകരണത്തിന്റെ ലക്ഷണങ്ങൾ",
+    "🥗 ആരോഗ്യകരമായ ഭക്ഷണ നുറുങ്ങുകൾ",
+    "😴 നല്ല ഉറക്കത്തിനുള്ള നിർദ്ദേശങ്ങൾ",
+    "🩺 ഉയർന്ന രക്തസമ്മർദ്ദം എന്നാൽ എന്താണ്?",
     "💊 മരുന്നുകൾ എപ്പോഴാണ് കഴിക്കേണ്ടത്?",
-    "🩺 ഇന്നത്തെ എന്റെ വൈറ്റലുകൾ സാധാരണമാണോ?",
-    "⚠️ അലർജിയുള്ള മരുന്നുകൾ സുരക്ഷിതമാണോ?",
-    "🏥 ഡോക്ടറെ എങ്ങനെ കാണാം?"
+    "🩺 ഇന്നത്തെ എന്റെ വൈറ്റലുകൾ സാധാരണമാണോ?"
   ]
 };
 
@@ -187,8 +211,8 @@ export function AgentPage({ patient, vitals, medications = [] }) {
         const patientFirstName = patient?.name ? patient.name.split(' ')[0] : 'there';
         const isHindi = selectedLanguage.startsWith('hi');
         const defaultText = isHindi
-          ? `नमस्ते ${patientFirstName}! मैं आपका MediKiosk हेल्थ असिस्टेंट हूँ। आपके स्वास्थ्य आंकड़े और दवाइयाँ तैयार हैं।\n\nमैं आज आपकी क्या मदद कर सकता हूँ? आप नीचे दिए गए किसी प्रश्न पर टैप कर सकते हैं, या बोलने के लिए माइक दबा सकते हैं!`
-          : `Hello ${patientFirstName}! I am your MediKiosk Health Assistant. I have your health records, medicines, and vitals ready.\n\nHow can I help you today? You can tap any question below, or tap the microphone to speak with me!`;
+          ? `नमस्ते ${patientFirstName}! मैं आपका MediKiosk हेल्थ असिस्टेंट हूँ।\n\nआप मुझसे सामान्य स्वास्थ्य प्रश्न (जैसे खान-पान, नींद, या लक्षण) या अपने मेडिकल रिकॉर्ड और दवाओं के बारे में पूछ सकते हैं!\n\n⚠️ अस्वीकरण: यह स्वास्थ्य जानकारी केवल शैक्षिक उद्देश्यों के लिए है और डॉक्टर की सलाह का विकल्प नहीं है।`
+          : `Hello ${patientFirstName}! I am your MediKiosk Health Assistant.\n\nYou can ask me general health questions (such as diet, sleep, symptoms, or medical terms) or ask about your personal medicines, vitals, and reports!\n\n⚠️ Disclaimer: Health information is for educational purposes and does not replace professional medical advice.`;
 
         setMessages([
           {
@@ -196,6 +220,7 @@ export function AgentPage({ patient, vitals, medications = [] }) {
             sender: 'agent',
             text: defaultText,
             urgency: 'normal',
+            query_mode: 'general',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             quick_replies: QUICK_REPLIES_BY_LANG[selectedLanguage] || QUICK_REPLIES_BY_LANG['en-IN']
           }
@@ -433,7 +458,10 @@ export function AgentPage({ patient, vitals, medications = [] }) {
       stopListening();
     }
 
-    const query = (customText || inputText).trim();
+    let query = (customText || inputText).trim();
+    if (query.toLowerCase() === 'retry' && lastQuery) {
+      query = lastQuery;
+    }
     if (!query || isAgentTyping) return;
 
     setSendError(null);
@@ -498,7 +526,7 @@ export function AgentPage({ patient, vitals, medications = [] }) {
               <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 hidden sm:inline" />
             </div>
             <p className="text-xs sm:text-sm text-slate-600 mt-1">
-              Ask about your medicines, test numbers, or doctor instructions. Tap the microphone to speak naturally.
+              Ask general health questions, explore wellness tips, or review your medicines and vitals. Tap the microphone to speak naturally.
             </p>
           </div>
 

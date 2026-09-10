@@ -32,7 +32,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ChatMessage
-        fields = ['id', 'conversation', 'sender', 'text', 'urgency', 'quick_replies', 'is_emergency', 'created_at', 'time']
+        fields = ['id', 'conversation', 'sender', 'text', 'urgency', 'quick_replies', 'is_emergency', 'query_mode', 'created_at', 'time']
         read_only_fields = ['id', 'created_at', 'time']
 
     def get_time(self, obj):

@@ -64,11 +64,12 @@ export default function App() {
   const refreshData = useCallback(async (patientId = '') => {
     try {
       const pid = patientId || patient?.patient_id;
-      const [p, vitalsRes, meds, docs] = await Promise.all([
+      const [p, vitalsRes, meds, docs, sumRes] = await Promise.all([
         api.getPatient(pid || '').catch(() => null),
         api.getVitals(pid || '').catch(() => null),
         api.getMedications(pid || '').catch(() => []),
-        api.getDocuments(pid || '').catch(() => [])
+        api.getDocuments(pid || '').catch(() => []),
+        api.getPatientSummary(pid || '').catch(() => null)
       ]);
 
       if (p) {
@@ -89,7 +90,9 @@ export default function App() {
 
       setMedications(Array.isArray(meds) ? meds : []);
       setDocuments(Array.isArray(docs) ? docs : []);
-      if (p?.summary) {
+      if (sumRes) {
+        setSummary(sumRes);
+      } else if (p?.summary) {
         setSummary(p.summary);
       }
       setApiStatus('online');
@@ -340,6 +343,7 @@ export default function App() {
             }
           />
           <Route path="/vitals" element={<Navigate to="/summary" replace />} />
+          <Route path="/doctor" element={<Navigate to="/summary" replace />} />
           <Route
             path="/agent"
             element={

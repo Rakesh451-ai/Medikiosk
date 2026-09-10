@@ -50,3 +50,33 @@ urlpatterns = [
     path('api/consent/', include('consent.urls')),
     path('api/triage/', include('triage.urls')),
 ]
+
+from django.conf import settings
+from django.conf.urls.static import static
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+import mimetypes
+from django.http import FileResponse, HttpResponseNotFound
+from django.urls import re_path
+
+DIST_DIR = settings.BASE_DIR.parent / 'frontend' / 'dist'
+
+def serve_react_app(request, path=''):
+    if not DIST_DIR.exists():
+        return HttpResponseNotFound("Frontend build not found. Please run 'npm run build' in frontend directory.")
+    
+    target_file = (DIST_DIR / path).resolve()
+    if path and target_file.is_file() and str(target_file).startswith(str(DIST_DIR.resolve())):
+        content_type, _ = mimetypes.guess_type(str(target_file))
+        return FileResponse(open(target_file, 'rb'), content_type=content_type or 'application/octet-stream')
+    
+    index_file = DIST_DIR / 'index.html'
+    if index_file.is_file():
+        return FileResponse(open(index_file, 'rb'), content_type='text/html')
+    return HttpResponseNotFound("index.html not found in frontend/dist")
+
+urlpatterns += [
+    re_path(r'^(?P<path>.*)$', serve_react_app, name='react_spa'),
+]

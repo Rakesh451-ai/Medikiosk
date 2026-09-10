@@ -1,7 +1,8 @@
 """
 MediKiosk AI Health Assistant Service
 Connects to Groq / OpenAI-compatible API to provide personalized,
-clinically grounded responses with patient EHR context and deterministic safety rails.
+clinically grounded responses with patient EHR context, general health education,
+and deterministic safety rails.
 """
 
 import json
@@ -11,6 +12,7 @@ import urllib.error
 import re
 from typing import Dict, Any, List, Optional
 from django.conf import settings
+from api.services.query_context_service import QueryContextService
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +23,12 @@ FALLBACK_MODELS = [
 ]
 
 DEFAULT_QUICK_REPLIES = [
+    "💧 Signs of dehydration",
+    "🥗 Healthy diet tips",
+    "😴 Sleep advice",
     "💊 When should I take my medicines?",
     "🩺 Are my vitals normal today?",
-    "⚠️ Are my medicines safe with my allergies?",
-    "🏥 How do I see a doctor or nurse?"
+    "🩺 What does high BP mean?"
 ]
 
 LANGUAGE_NAMES = {
@@ -52,12 +56,13 @@ LANGUAGE_NAMES = {
 
 
 class AIService:
-    """Orchestrates AI chat completions with patient context and safety guardrails."""
+    """Orchestrates AI chat completions with general health knowledge, patient context, and safety guardrails."""
 
     def __init__(self):
         self.api_key = getattr(settings, 'AI_API_KEY', '')
         self.base_url = getattr(settings, 'AI_API_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/')
         self.primary_model = getattr(settings, 'AI_MODEL', 'openai/gpt-oss-120b')
+        self.query_context_service = QueryContextService()
 
     def generate_response(
         self,
@@ -65,11 +70,18 @@ class AIService:
         patient_context_str: str,
         safety_assessment: Dict[str, Any],
         recent_messages: Optional[List[Dict[str, str]]] = None,
-        language: str = 'en'
+        language: str = 'en',
+        query_mode: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generates an assistant response for the patient query in the requested language.
+        Supports 'general', 'personal', and 'mixed' query modes.
         """
+        # Determine query mode if not explicitly provided
+        if not query_mode:
+            classified = self.query_context_service.determine_context(user_query)
+            query_mode = classified.get('type', 'general')
+
         # 1. Deterministic Emergency Red-Flag Bypass
         if safety_assessment.get('is_emergency'):
             return {
@@ -80,11 +92,17 @@ class AIService:
                     "📞 Call Emergency (112)",
                     "📍 Where is the triage desk?"
                 ],
-                "is_emergency": True
+                "is_emergency": True,
+                "query_mode": query_mode
             }
 
-        # 2. Build System Prompt with EHR Context & Safety Notes
-        system_prompt = self._build_system_prompt(patient_context_str, safety_assessment, language=language)
+        # 2. Build System Prompt with mode-specific instructions
+        system_prompt = self._build_system_prompt(
+            patient_context_str=patient_context_str,
+            safety_assessment=safety_assessment,
+            language=language,
+            query_mode=query_mode
+        )
 
         # 3. Build Conversation Messages Payload
         messages = [{"role": "system", "content": system_prompt}]
@@ -97,7 +115,7 @@ class AIService:
         # Add current user prompt
         messages.append({"role": "user", "content": user_query})
 
-        # 4. Attempt AI Generation via Groq API
+        # 4. Attempt AI Generation via LLM API
         urgency = safety_assessment.get('urgency', 'normal')
         ai_reply = None
 
@@ -106,49 +124,94 @@ class AIService:
 
         # 5. If AI service succeeds, parse and format response
         if ai_reply:
-            cleaned_text, quick_replies = self._extract_quick_replies(ai_reply, user_query)
-            # Ensure safety disclaimer is present if not emergency
+            cleaned_text, quick_replies = self._extract_quick_replies(ai_reply, user_query, query_mode=query_mode)
+
+            # Ensure unobtrusive medical educational disclaimer is present
             if "disclaimer" not in cleaned_text.lower() and "consult" not in cleaned_text.lower() and "अस्वीकरण" not in cleaned_text:
                 if language.startswith('hi'):
-                    cleaned_text += "\n\n⚠️ अस्वीकरण: MediKiosk केवल सामान्य स्वास्थ्य जानकारी प्रदान करता है और योग्य चिकित्सक के परामर्श का विकल्प नहीं है।"
+                    cleaned_text += "\n\n⚠️ अस्वीकरण: यह स्वास्थ्य जानकारी केवल शैक्षिक उद्देश्यों के लिए है और डॉक्टर के परामर्श का विकल्प नहीं है।"
                 else:
-                    cleaned_text += "\n\n⚠️ Disclaimer: MediKiosk provides health guidance for informational purposes and does not replace consultation with a licensed clinician."
+                    cleaned_text += "\n\n⚠️ Disclaimer: Health information is for educational purposes and does not replace professional medical advice."
 
             return {
                 "text": cleaned_text,
                 "urgency": urgency,
                 "quick_replies": quick_replies,
-                "is_emergency": False
+                "is_emergency": False,
+                "query_mode": query_mode
             }
 
-        # 6. Fallback Deterministic Clinical Guidance (if API unreachable or unconfigured)
-        return self._build_clinical_fallback(user_query, patient_context_str, safety_assessment, language=language)
+        # 6. Fallback when AI provider is unavailable (strictly no fake medical answers)
+        return self._build_clinical_fallback(
+            query=user_query,
+            patient_context_str=patient_context_str,
+            safety_assessment=safety_assessment,
+            language=language,
+            query_mode=query_mode
+        )
 
-    def _build_system_prompt(self, patient_context_str: str, safety_assessment: Dict[str, Any], language: str = 'en') -> str:
+    def _build_system_prompt(
+        self,
+        patient_context_str: str,
+        safety_assessment: Dict[str, Any],
+        language: str = 'en',
+        query_mode: str = 'general'
+    ) -> str:
         lang_name = LANGUAGE_NAMES.get(language, LANGUAGE_NAMES.get(language.split('-')[0], 'English'))
 
         prompt_parts = [
             "You are the MediKiosk AI Health Assistant, a friendly, empathetic, and medically accurate virtual assistant located on a hospital touch-screen kiosk.",
             "",
-            "CORE PRINCIPLES & CLINICAL GUIDELINES:",
-            "1. Ground all answers strictly in the patient's verified EHR context provided below.",
-            "2. Keep answers concise, clear, and reassuring (2-3 short paragraphs or bullet points). Patients may be reading on a kiosk screen or listening via text-to-speech.",
-            "3. Never invent test values, medications, or doctor names that are not in the EHR context.",
-            "4. If patient asks about medications, advise them according to their active prescription list and dosing instructions.",
-            "5. If patient asks about vitals, interpret their recorded readings (e.g. normal heart rate 60-100 bpm, normal BP around 120/80 mmHg). If none are recorded, explain clearly that no readings are on file yet and guide them to record a reading.",
-            "6. If an allergy warning applies, highlight it clearly with bold caution.",
-            "7. Suggest 3 short relevant follow-up questions at the very end formatted as: 'SUGGESTED_QUESTIONS: [Question 1 | Question 2 | Question 3]'.",
+            "CORE CLINICAL & SAFETY PRINCIPLES:",
+            "1. Keep answers concise, clear, and reassuring (2-3 short paragraphs or bullet points). Patients may read on a kiosk screen or listen via text-to-speech.",
+            "2. Explain medical concepts in simple, everyday words. If asked to 'explain it simply' or 'in simple words', break it down clearly without heavy jargon.",
+            "3. Never claim to diagnose the user or claim to physically examine them.",
+            "4. Never present yourself as a licensed physician; you are an AI Health Assistant.",
+            "5. Clearly state uncertainty when appropriate and recommend consulting a qualified healthcare professional when necessary.",
+            "6. Recognize potentially urgent symptoms (e.g., severe chest pain, shortness of breath, sudden numbness, severe trauma) and advise immediate emergency medical care.",
+            "7. Suggest 3 short relevant follow-up questions at the very end formatted strictly as: 'SUGGESTED_QUESTIONS: [Question 1 | Question 2 | Question 3]'.",
             "8. Always maintain an encouraging, calm, professional tone.",
             "",
             "MULTILINGUAL & LOCALIZATION GUIDELINES:",
             f"• Target Language: Respond primarily in {lang_name} ({language}).",
-            "• If the patient speaks or asks in Hindi, or mixes Hindi and English (Hinglish, e.g. 'meri BP report kaisi hai?', 'what medicines am I le raha hoon?'), understand their query naturally and respond in clean, empathetic Hindi or Hinglish as appropriate.",
+            "• If the patient speaks or asks in Hindi, or mixes Hindi and English (Hinglish, e.g. 'Dehydration kya hota hai?', 'BP kya hota hai?', 'sir dard kyun hota hai?'), understand their query naturally and respond in clean, empathetic Hindi or Hinglish as appropriate.",
             "• If the patient selects or types in an Indian regional language (Bengali, Marathi, Gujarati, Tamil, Telugu, Kannada, Punjabi, Malayalam), formulate your entire answer in that language.",
-            "• DO NOT mistranslate medicine names, dosages, or measurements. Keep drug names (e.g. Paracetamol 650mg, Metformin), test names, and vital numbers (e.g. 120/80 mmHg, 72 bpm, 98%) medically accurate and standard.",
-            "• Explain complex medical terms in simple, easily understandable words for the patient.",
+            "• DO NOT mistranslate medicine names, dosages, or measurements. Keep drug names (e.g. Paracetamol 650mg, Amoxicillin 250mg), test names, and vital numbers (e.g. 120/80 mmHg, 72 bpm, 98%) medically accurate and standard.",
             "",
-            patient_context_str
         ]
+
+        if query_mode == 'general':
+            prompt_parts.extend([
+                "CURRENT MODE: GENERAL HEALTH EDUCATION",
+                "• The user is asking a general health, lifestyle, symptom, nutrition, or medical knowledge question.",
+                "• Begin your answer naturally by framing it with 'In general...' (or in Hindi: 'सामान्यतः...') unless it is a simple conversational greeting.",
+                "• Provide educational health information in simple, clear language.",
+                "• Do NOT require patient medical records. Never say 'No patient data available' or ask for medical records.",
+                "• Patient EHR data is intentionally omitted for privacy in general health mode.",
+            ])
+        elif query_mode == 'personal':
+            prompt_parts.extend([
+                "CURRENT MODE: PERSONAL HEALTH RECORDS",
+                "• The user is asking about their personal medical records, active medications, recorded vitals, or test reports.",
+                "• Frame your answer starting with 'Based on your records...' (or in Hindi: 'आपके मेडिकल रिकॉर्ड के अनुसार...').",
+                "• Ground all answers strictly in the patient's verified EHR context provided below.",
+                "• Never invent test values, medications, or doctor names that are not in the EHR context.",
+                "• If the patient asks about vitals or medications and none are recorded, explain clearly that no readings or prescriptions are currently on file in their chart.",
+                "",
+                patient_context_str
+            ])
+        elif query_mode == 'mixed':
+            prompt_parts.extend([
+                "CURRENT MODE: MIXED (GENERAL HEALTH + PERSONAL RECORDS)",
+                "• The user is asking both a general health question AND inquiring about their own recorded data or status.",
+                "• Structure your response into two distinct, clearly distinguished parts:",
+                "  1. General Explanation: Explain the general concept in simple terms starting with 'In general...' (or in Hindi: 'सामान्यतः...').",
+                "  2. Personal Comparison: Compare with or reference the patient's actual recorded data starting with 'Based on your records...' (or in Hindi: 'आपके मेडिकल रिकॉर्ड के अनुसार...'). If the patient has no recorded values for this metric on file, state that clearly.",
+                "• Clearly distinguish general health knowledge from patient-specific data.",
+                "• Ground personal answers strictly in the verified EHR context below. Never invent personal data.",
+                "",
+                patient_context_str
+            ])
 
         if safety_assessment.get('urgency') == 'warning' and safety_assessment.get('warning_message'):
             prompt_parts.extend([
@@ -160,9 +223,11 @@ class AIService:
 
         return "\n".join(prompt_parts)
 
-    def _call_llm_api(self, messages: List[Dict[str, str]]) -> Optional[str]:
-        """Calls Groq/OpenAI compatible API with model fallback."""
-        models_to_try = [self.primary_model] + [m for m in FALLBACK_MODELS if m != self.primary_model]
+    def _call_llm_api(self, messages: List[Dict[str, str]], timeout: float = 12.0, try_fallbacks: bool = True) -> Optional[str]:
+        """Calls Groq/OpenAI compatible API with model fallback and configurable timeout."""
+        models_to_try = [self.primary_model]
+        if try_fallbacks:
+            models_to_try += [m for m in FALLBACK_MODELS if m != self.primary_model]
 
         for model_name in models_to_try:
             try:
@@ -186,7 +251,7 @@ class AIService:
                     method='POST'
                 )
 
-                with urllib.request.urlopen(req, timeout=12) as response:
+                with urllib.request.urlopen(req, timeout=timeout) as response:
                     if response.status == 200:
                         data = json.loads(response.read().decode('utf-8'))
                         choices = data.get('choices', [])
@@ -206,7 +271,7 @@ class AIService:
 
         return None
 
-    def _extract_quick_replies(self, text: str, user_query: str) -> (str, List[str]):
+    def _extract_quick_replies(self, text: str, user_query: str, query_mode: str = 'general') -> (str, List[str]):
         """Extracts SUGGESTED_QUESTIONS marker or provides contextual quick replies."""
         quick_replies = []
         clean_text = text
@@ -226,33 +291,79 @@ class AIService:
                 clean_text = text[:match_lines.start()].strip()
 
         if not quick_replies or len(quick_replies) < 2:
-            quick_replies = self._generate_contextual_replies(user_query)
+            quick_replies = self._generate_contextual_replies(user_query, query_mode=query_mode)
 
         return clean_text, quick_replies
 
-    def _generate_contextual_replies(self, query: str) -> List[str]:
+    def _generate_contextual_replies(self, query: str, query_mode: str = 'general') -> List[str]:
         q_lower = (query or "").lower()
-        if any(w in q_lower for w in ['vital', 'heart', 'bp', 'blood pressure']):
+
+        if query_mode == 'personal':
+            if any(w in q_lower for w in ['vital', 'heart', 'bp', 'blood pressure']):
+                return [
+                    "💊 When should I take my medicines?",
+                    "⚠️ Are my medicines safe with my allergies?",
+                    "🩺 How often should I check my BP?",
+                    "🏥 How do I consult my doctor?"
+                ]
+            elif any(w in q_lower for w in ['med', 'pill', 'dose', 'drug']):
+                return [
+                    "🩺 Are my latest vitals normal?",
+                    "⚠️ Do any medicines conflict with my allergies?",
+                    "💧 Should I take my medicine before or after meals?",
+                    "🏥 How do I speak with a pharmacist?"
+                ]
+            elif any(w in q_lower for w in ['allergy', 'allergic']):
+                return [
+                    "💊 Review all my current medications",
+                    "🩺 Check my latest health numbers",
+                    "📝 How do I add a new allergy?",
+                    "🏥 Call triage staff for advice"
+                ]
             return [
                 "💊 When should I take my medicines?",
+                "🩺 Are my vitals normal today?",
                 "⚠️ Are my medicines safe with my allergies?",
-                "🩺 How often should I check my BP?",
-                "🏥 How do I consult my doctor?"
+                "🏥 How do I see a doctor or nurse?"
             ]
-        elif any(w in q_lower for w in ['med', 'pill', 'dose', 'drug']):
+
+        # General Health or Mixed mode
+        if any(w in q_lower for w in ['dehydration', 'water', 'drink', 'fluid']):
             return [
-                "🩺 Are my latest vitals normal?",
-                "⚠️ Do any medicines conflict with my allergies?",
-                "💧 Should I take my medicine before or after meals?",
-                "🏥 How do I speak with a pharmacist?"
+                "💧 How much water should I drink daily?",
+                "🥗 Healthy diet tips",
+                "😴 Better sleep advice",
+                "🩺 What is normal blood pressure?"
             ]
-        elif any(w in q_lower for w in ['allergy', 'allergic']):
+        elif any(w in q_lower for w in ['sleep', 'insomnia', 'tired', 'fatigue']):
             return [
-                "💊 Review all my current medications",
-                "🩺 Check my latest health numbers",
-                "📝 How do I add a new allergy?",
-                "🏥 Call triage staff for advice"
+                "😴 Tips for better sleep quality",
+                "🥗 Healthy evening foods",
+                "💧 Signs of dehydration",
+                "🩺 Normal resting pulse range"
             ]
+        elif any(w in q_lower for w in ['diet', 'food', 'nutrition', 'eat', 'weight']):
+            return [
+                "🥗 Balanced daily meal tips",
+                "💧 Importance of hydration",
+                "😴 Sleep and metabolism",
+                "🩺 Understanding blood sugar"
+            ]
+        elif any(w in q_lower for w in ['bp', 'blood pressure', 'hypertension']):
+            return [
+                "🩺 What causes high blood pressure?",
+                "🥗 Dietary changes for blood pressure",
+                "💧 Signs of dehydration",
+                "🏥 When should I see a doctor?"
+            ]
+        elif any(w in q_lower for w in ['diabetes', 'sugar', 'glucose']):
+            return [
+                "🩺 Explain diabetes in simple words",
+                "🥗 Healthy foods for blood sugar",
+                "😴 How sleep affects sugar levels",
+                "💧 Signs of dehydration"
+            ]
+
         return DEFAULT_QUICK_REPLIES
 
     def _build_clinical_fallback(
@@ -260,106 +371,50 @@ class AIService:
         query: str,
         patient_context_str: str,
         safety_assessment: Dict[str, Any],
-        language: str = 'en'
+        language: str = 'en',
+        query_mode: str = 'general'
     ) -> Dict[str, Any]:
-        """Provides high-quality, grounded clinical advice when external AI is temporarily offline."""
-        q_lower = query.lower()
+        """
+        When external AI is unavailable:
+        Do not generate fake answers.
+        Return 'The health assistant is temporarily unavailable.' with [Retry].
+        """
         urgency = safety_assessment.get('urgency', 'normal')
         is_hindi = language.startswith('hi') or any('\u0900' <= char <= '\u097F' for char in query)
 
-        # Check allergy warning first
+        # Allergy warning guardrail (always maintain patient safety)
         if urgency == 'warning' and safety_assessment.get('warning_message'):
             if is_hindi:
                 text = (
                     f"⚠️ एलर्जी चेतावनी: {safety_assessment.get('warning_message')}\n\n"
                     "कृपया अपने डॉक्टर या फार्मासिस्ट की अनुमति के बिना यह दवा बिल्कुल न लें।\n\n"
-                    "⚠️ अस्वीकरण: MediKiosk केवल जानकारी प्रदान करता है और डॉक्टर के परामर्श का विकल्प नहीं है।"
+                    "⚠️ अस्वीकरण: यह स्वास्थ्य जानकारी केवल शैक्षिक उद्देश्यों के लिए है और डॉक्टर के परामर्श का विकल्प नहीं है।"
                 )
-                quick_replies = [
-                    "💊 मेरी दवाइयां देखें",
-                    "🩺 मेरे स्वास्थ्य आंकड़े (Vitals)",
-                    "🏥 डॉक्टर से संपर्क करें"
-                ]
             else:
                 text = (
                     f"{safety_assessment.get('warning_message')}\n\n"
                     "Please do NOT take this medication without explicit clearance from your prescribing doctor or pharmacist.\n\n"
-                    "⚠️ Medical Disclaimer: MediKiosk provides health information and does not replace consultation with a licensed clinician."
+                    "⚠️ Disclaimer: Health information is for educational purposes and does not replace professional medical advice."
                 )
-                quick_replies = [
-                    "💊 Review my active prescriptions",
-                    "🩺 Check my vital readings",
-                    "🏥 Alert clinic nurse"
-                ]
             return {
                 "text": text,
                 "urgency": "warning",
-                "quick_replies": quick_replies,
-                "is_emergency": False
+                "quick_replies": ["Retry"],
+                "is_emergency": False,
+                "query_mode": query_mode
             }
 
-        # Vitals inquiry
-        if any(w in q_lower for w in ['vital', 'bp', 'heart', 'pulse', 'spo2', 'sugar', 'blood pressure']) or any(w in query for w in ['बीपी', 'धड़कन', 'शुगर', 'तापमान']):
-            if is_hindi:
-                text = (
-                    "आपके स्वास्थ्य चार्ट में दर्ज मुख्य स्वास्थ्य आंकड़े (Vitals) इस प्रकार हैं:\n\n"
-                    "• सामान्य रक्तचाप (Blood Pressure) 120/80 mmHg के आसपास होना चाहिए।\n"
-                    "• सामान्य दिल की धड़कन (Heart Rate) 60 से 100 bpm के बीच सामान्य मानी जाती है।\n"
-                    "• ऑक्सीजन स्तर (SpO2) 95% या अधिक होना चाहिए।\n\n"
-                    "अपनी ताज़ा रिपोर्ट स्क्रीन पर बाईं ओर देख सकते हैं। यदि आपको चक्कर या कमजोरी महसूस हो तो तुरंत कियोस्क स्टाफ को सूचित करें।"
-                )
-                quick_replies = ["🩺 क्या मेरा बीपी ठीक है?", "💊 मेरी दवाएं", "🏥 डॉक्टर की सलाह"]
-            else:
-                text = (
-                    "Here is the status of your vital readings recorded in your health chart:\n\n"
-                    "• Blood pressure targets are typically below 120/80 mmHg.\n"
-                    "• A resting heart rate between 60 and 100 bpm is standard for most adults.\n"
-                    "• Oxygen saturation (SpO2) at 95% or higher is normal.\n\n"
-                    "Check the 'What the Assistant Knows' card on the left for your latest values on file. If you are experiencing lightheadedness or fatigue, please alert kiosk staff."
-                )
-                quick_replies = self._generate_contextual_replies(query)
-        # Medication inquiry
-        elif any(w in q_lower for w in ['medic', 'pill', 'dose', 'drug', 'prescription', 'when should i take']) or any(w in query for w in ['दवा', 'गोली', 'खुराक']):
-            if is_hindi:
-                text = (
-                    "आपकी निर्धारित दवाओं के संबंध में महत्वपूर्ण निर्देश:\n\n"
-                    "• कृपया डॉक्टर द्वारा बताए गए समय (सुबह / दोपहर / रात) और भोजन संबंधी निर्देशों का पालन करें।\n"
-                    "• गोलियां हमेशा एक पूरे गिलास पानी के साथ लें।\n"
-                    "• आप 'Prescriptions' मेन्यू में जाकर दवाओं को ले चुके होने का रिकॉर्ड मार्क कर सकते हैं।\n\n"
-                    "यदि किसी दवा से असहजता महसूस हो तो तुरंत अपने चिकित्सक से संपर्क करें।"
-                )
-                quick_replies = ["💊 दवा का समय बताएं", "⚠️ क्या कोई एलर्जी है?", "🩺 स्वास्थ्य सारांश"]
-            else:
-                text = (
-                    "Regarding your prescriptions:\n\n"
-                    "• Always follow the timing (morning/evening) and meal instructions indicated by your doctor.\n"
-                    "• Take medicines with a full glass of water.\n"
-                    "• You can view and mark your doses as taken on the 'Prescriptions' screen.\n\n"
-                    "If you experience side effects or miss a dose, please contact your prescribing physician."
-                )
-                quick_replies = self._generate_contextual_replies(query)
-        else:
-            if is_hindi:
-                text = (
-                    f"आपके प्रश्न '{query}' के लिए धन्यवाद। आपका मेडिकल रिकॉर्ड सुरक्षित रूप से लोड है।\n\n"
-                    "आप अपनी दवाओं, वाइटल्स (बीपी/पल्स), एलर्जी या जांच रिपोर्ट के बारे में कोई भी प्रश्न पूछ सकते हैं।"
-                )
-                quick_replies = ["💊 मेरी दवाएं", "🩺 मेरे स्वास्थ्य आंकड़े", "⚠️ एलर्जी जांच"]
-            else:
-                text = (
-                    f"Thank you for your question regarding '{query}'. Your personal health record is actively loaded.\n\n"
-                    "You can ask about your active prescriptions, recorded vitals, documented drug allergies, or instructions from your medical documents."
-                )
-                quick_replies = self._generate_contextual_replies(query)
-
+        # Requirement 16: NO FAKE FALLBACK
         if is_hindi:
-            text += "\n\n⚠️ अस्वीकरण: MediKiosk केवल सामान्य स्वास्थ्य जानकारी प्रदान करता है और चिकित्सक के परामर्श का विकल्प नहीं है।"
+            text = "हेल्थ असिस्टेंट अस्थायी रूप से अनुपलब्ध है। कृपया पुनः प्रयास करने के लिए 'Retry' पर टैप करें या अस्पताल कर्मियों से संपर्क करें।"
         else:
-            text += "\n\n⚠️ Disclaimer: MediKiosk provides health guidance for informational purposes and does not replace consultation with a licensed clinician."
+            text = "The health assistant is temporarily unavailable. Please tap 'Retry' to try again."
 
         return {
             "text": text,
-            "urgency": urgency,
-            "quick_replies": quick_replies,
-            "is_emergency": False
+            "urgency": "normal",
+            "quick_replies": ["Retry"],
+            "is_emergency": False,
+            "is_unavailable": True,
+            "query_mode": query_mode
         }

@@ -9,7 +9,8 @@ from django.utils import timezone
 from intake.models import IntakeSession
 from .models import PhysicianSummary, SummaryRevision
 from .serializers import PhysicianSummarySerializer
-from .services.summary_generator import generate_physician_summary_from_intake
+from .services.summary_generator import generate_physician_summary_from_intake, build_patient_health_summary
+from accounts.auth_utils import find_user_by_identifier
 
 class GenerateSessionSummaryView(APIView):
     """
@@ -28,77 +29,54 @@ class GenerateSessionSummaryView(APIView):
 class PhysicianSummaryDetailView(APIView):
     """
     Module C: Retrieve or amend/confirm clinical summary with audit logging.
+    Dynamically generates patient health summary dashboard data from actual records.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, summary_id=None):
-        summary = None
         cleaned_id = (summary_id or '').strip()
         is_placeholder = cleaned_id.lower() in {'', 'null', 'undefined', 'ehr profile', 'patient', 'self', 'me', 'none'}
+
+        # 1. Check if direct query by summary_id on a session without assigned patient
         if cleaned_id and not is_placeholder:
-            summary = PhysicianSummary.objects.filter(
-                summary_id=cleaned_id
-            ).first() or PhysicianSummary.objects.filter(
-                patient_identifier=cleaned_id
-            ).first()
+            spec_summary = PhysicianSummary.objects.filter(summary_id=cleaned_id).first()
+            if spec_summary and not spec_summary.patient:
+                serializer = PhysicianSummarySerializer(spec_summary)
+                return Response(serializer.data, status=status.HTTP_200_OK)
 
-        if not summary and request.user.is_authenticated:
-            summary = PhysicianSummary.objects.filter(patient=request.user).first()
+        # 2. Determine target user & verify object-level authorization
+        target_user = request.user
+        if request.user.is_patient:
+            target_user = request.user
+            if cleaned_id and not is_placeholder:
+                profile = getattr(request.user, 'patient_profile', None)
+                allowed = {request.user.username, str(request.user.id)}
+                if profile:
+                    allowed.update(filter(None, [profile.mock_abha_id, profile.mock_aadhaar_id, profile.phone]))
+                owns_summary = PhysicianSummary.objects.filter(summary_id=cleaned_id, patient=request.user).exists()
+                if cleaned_id not in allowed and not owns_summary:
+                    return Response(
+                        {"error": "Forbidden: You cannot access another patient's clinical summary."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+        elif request.user.is_clinical_staff:
+            if cleaned_id and not is_placeholder:
+                found_summary = PhysicianSummary.objects.filter(summary_id=cleaned_id).first()
+                if found_summary and found_summary.patient:
+                    target_user = found_summary.patient
+                else:
+                    found, _, _ = find_user_by_identifier(cleaned_id)
+                    if found:
+                        target_user = found
+            else:
+                from accounts.models import User
+                recent_patient = User.objects.filter(role=User.Role.PATIENT).order_by('-last_login', '-id').first()
+                if recent_patient:
+                    target_user = recent_patient
 
-        profile = getattr(request.user, 'patient_profile', None)
-        pid = profile.mock_abha_id if profile else request.user.username
-
-        # If still not found, synthesize on demand from existing MedicalDocuments
-        if not summary and request.user.is_authenticated:
-            from documents.models import MedicalDocument
-            docs = MedicalDocument.objects.filter(patient=request.user)
-            if docs.exists():
-                latest_doc = docs.first()
-                hpi_parts = [f"Summary compiled from verified health records ({docs.count()} document(s) on file)."]
-                if latest_doc.title:
-                    hpi_parts.append(f"Most recent record: {latest_doc.title} ({latest_doc.doc_type}).")
-                summary = PhysicianSummary.objects.create(
-                    patient=request.user,
-                    patient_identifier=pid,
-                    status=PhysicianSummary.Status.CONFIRMED,
-                    chief_complaint=latest_doc.title or "General Health Record Summary",
-                    hpi=" ".join(hpi_parts),
-                    past_medical_surgical_history="No previous surgeries recorded.",
-                    allergies=profile.allergies if profile else [],
-                    bilingual_summary={
-                        "hi": {
-                            "chief_complaint": latest_doc.title or "स्वास्थ्य सारांश",
-                            "hpi": "मरीज़ के मेडिकल रिकॉर्ड के आधार पर सारांश तैयार किया गया है।",
-                            "doctor_action": "नियमित रूप से स्वास्थ्य की निगरानी करें।"
-                        }
-                    },
-                    doctor_notes=f"Synthesized from {docs.count()} clinical records."
-                )
-
-        if not summary:
-            return Response({
-                "summary_id": None,
-                "patient_identifier": pid,
-                "status": "DRAFT",
-                "chief_complaint": "No recent clinical summary recorded.",
-                "hpi": "No medical documents or consultation notes have been uploaded yet.",
-                "past_medical_surgical_history": "",
-                "drug_history": [],
-                "allergies": profile.allergies if profile else [],
-                "investigations": [],
-                "doctor_notes": "",
-                "bilingual_summary": {},
-                "created_at": timezone.now().isoformat()
-            }, status=status.HTTP_200_OK)
-
-        if summary.patient and summary.patient != request.user and not getattr(request.user, 'is_clinical_staff', False):
-            return Response(
-                {"error": "Forbidden: You cannot access another patient's clinical summary."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        serializer = PhysicianSummarySerializer(summary)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # 3. Dynamically build comprehensive summary from actual patient database records
+        summary_payload = build_patient_health_summary(target_user)
+        return Response(summary_payload, status=status.HTTP_200_OK)
 
     def patch(self, request, summary_id):
         summary = get_object_or_404(PhysicianSummary, summary_id=summary_id)

@@ -264,10 +264,47 @@ class DocumentService:
                 is_abnormal=False
             )
 
+        # Save ExtractedRecords for procedures / surgeries
+        procs = staged_data.get('procedures', [])
+        for proc in procs:
+            proc_name = proc if isinstance(proc, str) else proc.get('procedure_name', '')
+            if proc_name:
+                ExtractedRecord.objects.create(
+                    document=doc,
+                    record_type=ExtractedRecord.RecordType.PROCEDURE,
+                    structured_data={
+                        "procedure_name": proc_name,
+                        "doctor": doc_doctor,
+                        "facility": doc_facility
+                    },
+                    document_date=doc_date,
+                    is_abnormal=False
+                )
+
         # Update patient profile
         if user_profile:
             updated_profile_fields = ['has_scanned_documents']
             user_profile.has_scanned_documents = True
+
+            new_chronic = staged_data.get('chronic_conditions', [])
+            if new_chronic:
+                existing_c = set(c.lower() for c in (user_profile.chronic_conditions or []))
+                for nc in new_chronic:
+                    if nc.lower() not in existing_c:
+                        user_profile.chronic_conditions = list(user_profile.chronic_conditions or []) + [nc]
+                        existing_c.add(nc.lower())
+                        if 'chronic_conditions' not in updated_profile_fields:
+                            updated_profile_fields.append('chronic_conditions')
+
+            new_allergies = staged_data.get('extracted_allergies', []) or staged_data.get('allergies', [])
+            if new_allergies and isinstance(new_allergies, list):
+                existing_a = set(a.lower() for a in (user_profile.allergies or []))
+                for na in new_allergies:
+                    if isinstance(na, str) and na.strip() and na.strip().lower() not in existing_a:
+                        user_profile.allergies = list(user_profile.allergies or []) + [na.strip()]
+                        existing_a.add(na.strip().lower())
+                        if 'allergies' not in updated_profile_fields:
+                            updated_profile_fields.append('allergies')
 
             if staged_data.get('doctor') and not user_profile.primary_doctor:
                 user_profile.primary_doctor = staged_data['doctor']
@@ -341,62 +378,10 @@ class DocumentService:
 
             user_profile.save(update_fields=updated_profile_fields)
 
-        # Create or update PhysicianSummary from verified document data
+        # Dynamically aggregate and synchronize patient health summary
         try:
-            from summary.models import PhysicianSummary
-            summary_chief = diag or staged_data.get('title') or 'Clinical Consultation'
-            findings_str = staged_data.get('findings') or staged_data.get('impression') or diag or ''
-
-            hpi_elements = []
-            if doc_doctor:
-                hpi_elements.append(f"Consultation with Dr. {doc_doctor}")
-            if doc_facility:
-                hpi_elements.append(f"at {doc_facility}")
-            if doc_date:
-                hpi_elements.append(f"on {doc_date.strftime('%B %d, %Y')}.")
-            if diag:
-                hpi_elements.append(f"Diagnosis / assessment: {diag}.")
-            if findings_str and findings_str != diag:
-                hpi_elements.append(f"Clinical findings: {findings_str}.")
-            if meds:
-                med_names = [m.get('name') for m in meds if m.get('name')]
-                if med_names:
-                    hpi_elements.append(f"Prescribed medications: {', '.join(med_names)}.")
-            if cleaned_vitals:
-                v_items = []
-                if cleaned_vitals.get('heart_rate'): v_items.append(f"Heart Rate {cleaned_vitals['heart_rate']} bpm")
-                if cleaned_vitals.get('blood_pressure'): v_items.append(f"BP {cleaned_vitals['blood_pressure']}")
-                if cleaned_vitals.get('spo2'): v_items.append(f"SpO2 {cleaned_vitals['spo2']}%")
-                if cleaned_vitals.get('temperature'): v_items.append(f"Temp {cleaned_vitals['temperature']}°F")
-                if cleaned_vitals.get('glucose'): v_items.append(f"Glucose {cleaned_vitals['glucose']} mg/dL")
-                if v_items:
-                    hpi_elements.append(f"Documented vitals: {', '.join(v_items)}.")
-
-            hpi_text = " ".join(hpi_elements) if hpi_elements else "Medical record reviewed and verified."
-
-            bilingual_summary = {
-                "hi": {
-                    "chief_complaint": diag or "चिकित्सीय परामर्श",
-                    "hpi": f"मरीज़ का दस्तावेज़ दर्ज किया गया। डॉक्टर: {doc_doctor or 'उपलब्ध नहीं'}, अस्पताल: {doc_facility or 'उपलब्ध नहीं'}।",
-                    "doctor_action": "निर्धारित दवाओं और सावधानियों का पालन करें।"
-                }
-            }
-
-            PhysicianSummary.objects.update_or_create(
-                patient=user,
-                defaults={
-                    'patient_identifier': patient_identifier,
-                    'status': PhysicianSummary.Status.CONFIRMED,
-                    'chief_complaint': summary_chief,
-                    'hpi': hpi_text,
-                    'past_medical_surgical_history': diag or "No prior surgical history documented.",
-                    'drug_history': meds,
-                    'allergies': user_profile.allergies if user_profile else [],
-                    'investigations': labs,
-                    'bilingual_summary': bilingual_summary,
-                    'doctor_notes': f"Extracted from verified {doc.doc_type}: {doc.title}"
-                }
-            )
+            from summary.services.summary_generator import build_patient_health_summary
+            build_patient_health_summary(user)
         except Exception as summary_err:
             logger.warning(f"Could not update PhysicianSummary: {summary_err}")
 

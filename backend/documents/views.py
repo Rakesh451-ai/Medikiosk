@@ -266,6 +266,14 @@ class DocumentStatusView(APIView):
                 profile.has_scanned_documents = False
                 profile.save(update_fields=['has_scanned_documents'])
 
+        # 5. Dynamically refresh patient health summary upon document deletion
+        if patient_user:
+            try:
+                from summary.services.summary_generator import build_patient_health_summary
+                build_patient_health_summary(patient_user)
+            except Exception as e:
+                pass
+
         return Response({
             "status": "success",
             "message": f"Medical record '{title}' deleted successfully."

@@ -85,3 +85,42 @@ body.kiosk-large-text .text-xl {
 body.kiosk-large-text .text-2xl {
   font-size: 1.8rem !important;
 }
+
+/* Print / A4 Doctor-Ready Patient Summary Optimization */
+@media print {
+  @page {
+    size: A4;
+    margin: 8mm 10mm;
+  }
+  body {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  nav,
+  [aria-label="Universal Bottom Navigation"],
+  header[class*="print:hidden"],
+  footer[class*="print:hidden"],
+  .fixed,
+  button:not(.print-include) {
+    display: none !important;
+  }
+  article {
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  table {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+

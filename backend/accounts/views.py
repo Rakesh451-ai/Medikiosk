@@ -31,6 +31,7 @@ from .serializers import (
 from api.services.patient_context import PatientContextBuilder
 from api.services.safety_service import SafetyService
 from api.services.ai_service import AIService
+from api.services.query_context_service import QueryContextService
 
 from .auth_utils import (
     clean_digits,
@@ -893,16 +894,22 @@ def agent_conversations_api(request):
         sender=ChatMessage.Sender.AGENT,
         text=(
             f"Hello {first_name}! I have started a new consultation session for you.\n\n"
-            "Your health records, active medicines, and latest vitals are loaded. "
-            "How can I help you today? You can tap any question below, or tap the microphone to speak."
+            "You can ask me general health questions (such as diet, sleep, symptoms, or medical terms) or ask about your personal medicines, vitals, and reports.\n\n"
+            "How can I help you today? You can tap any question below, or tap the microphone to speak.\n\n"
+            "⚠️ Disclaimer: Health information is for educational purposes and does not replace professional medical advice."
         ),
         urgency='normal',
         quick_replies=[
+            "💧 Signs of dehydration",
+            "🥗 Healthy diet tips",
+            "😴 Sleep advice",
+            "🏃 Exercise guidance",
+            "🩺 Common symptoms",
             "💊 When should I take my medicines?",
             "🩺 Are my vitals normal today?",
-            "⚠️ Are my medicines safe with my allergies?",
-            "🏥 How do I see a doctor or nurse?"
-        ]
+            "🩺 What does high BP mean?"
+        ],
+        query_mode='general'
     )
 
     return Response({
@@ -977,17 +984,23 @@ def agent_chat_api(request):
             patient=target_user,
             sender=ChatMessage.Sender.AGENT,
             text=(
-                f"Hello {first_name}! I am your MediKiosk Health Assistant. I have your health numbers and medicines ready.\n\n"
-                "How can I help you today? You can tap any of the questions below, or tap the microphone to speak with me!\n\n"
-                "⚠️ Medical Disclaimer: MediKiosk Health Assistant provides informational guidance only and does not diagnose disease or replace licensed clinician consultation."
+                f"Hello {first_name}! I am your MediKiosk Health Assistant.\n\n"
+                "You can ask me general health questions (such as diet, sleep, symptoms, or medical terms) or ask about your personal medicines, vitals, and reports.\n\n"
+                "How can I help you today? You can tap any question below or tap the microphone to speak with me!\n\n"
+                "⚠️ Disclaimer: Health information is for educational purposes and does not replace professional medical advice."
             ),
             urgency='normal',
             quick_replies=[
+                "💧 Signs of dehydration",
+                "🥗 Healthy diet tips",
+                "😴 Sleep advice",
+                "🏃 Exercise guidance",
+                "🩺 Common symptoms",
                 "💊 When should I take my medicines?",
                 "🩺 Are my vitals normal today?",
-                "⚠️ Are my medicines safe with my allergies?",
-                "🏥 How do I see a doctor or nurse?"
-            ]
+                "🩺 What does high BP mean?"
+            ],
+            query_mode='general'
         )
         return Response([ChatMessageSerializer(init_msg).data])
 
@@ -995,6 +1008,10 @@ def agent_chat_api(request):
     text = request.data.get('text', '').strip()
     if not text:
         return Response({"error": "Message text is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Classify query context
+    query_context = QueryContextService.determine_context(text)
+    query_mode = query_context.get('type', 'general')
 
     # Ensure conversation exists
     if not conversation:
@@ -1011,19 +1028,31 @@ def agent_chat_api(request):
         patient=target_user,
         sender=ChatMessage.Sender.PATIENT,
         text=text,
-        urgency='normal'
+        urgency='normal',
+        query_mode=query_mode
     )
 
-    # 1. Build structured Patient EHR Context
-    patient_context = PatientContextBuilder.build_context(target_user)
-    context_str = PatientContextBuilder.format_system_prompt_context(patient_context)
+    # 1. Build structured Patient EHR Context ONLY when required (Privacy Protection)
+    context_str = ""
+    patient_allergies = []
+    active_medications = []
+    if query_context.get('requires_patient_data', False):
+        patient_context = PatientContextBuilder.build_context(target_user)
+        context_str = PatientContextBuilder.format_system_prompt_context(patient_context)
+        patient_allergies = patient_context.get('allergies', [])
+        active_medications = patient_context.get('medications', [])
+    else:
+        # For general queries, retain allergy safety check if user asks about a drug
+        profile = getattr(target_user, 'patient_profile', None)
+        if profile and profile.allergies:
+            patient_allergies = profile.allergies
 
     # 2. Run Deterministic Clinical Safety Guardrails
     safety_service = SafetyService()
     safety_assessment = safety_service.check_query_safety(
         text=text,
-        patient_allergies=patient_context.get('allergies', []),
-        active_medications=patient_context.get('medications', [])
+        patient_allergies=patient_allergies,
+        active_medications=active_medications
     )
 
     # 3. Retrieve recent conversation history for prompt continuity
@@ -1035,7 +1064,7 @@ def agent_chat_api(request):
             "text": m.text
         })
 
-    # 4. Generate AI response (with model fallbacks, multilingual support, and clinical grounding)
+    # 4. Generate AI response (with model fallbacks, multilingual support, and general/personal grounding)
     language = (request.data.get('language') or (profile.preferred_language if profile else '') or 'en').strip()
     if profile and request.data.get('language') and profile.preferred_language != request.data.get('language'):
         profile.preferred_language = request.data.get('language')
@@ -1047,7 +1076,8 @@ def agent_chat_api(request):
         patient_context_str=context_str,
         safety_assessment=safety_assessment,
         recent_messages=recent_history,
-        language=language
+        language=language,
+        query_mode=query_mode
     )
 
     # Update conversation title if default
@@ -1065,7 +1095,8 @@ def agent_chat_api(request):
         text=ai_result.get('text', ''),
         urgency=ai_result.get('urgency', 'normal'),
         quick_replies=ai_result.get('quick_replies', []),
-        is_emergency=ai_result.get('is_emergency', False)
+        is_emergency=ai_result.get('is_emergency', False),
+        query_mode=ai_result.get('query_mode', query_mode)
     )
 
     return Response(ChatMessageSerializer(agent_msg).data, status=status.HTTP_200_OK)

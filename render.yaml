@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: medikiosk
+    runtime: python
+    buildCommand: ./build.sh
+    startCommand: cd backend && gunicorn medikiosk_core.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: NODE_VERSION
+        value: 20.12.0
+      - key: DJANGO_ENV
+        value: prod
+      - key: DEBUG
+        value: "False"
+      - key: USE_SQLITE
+        value: "True"
+      - key: ALLOWED_HOSTS
+        value: "*"
+      - key: CORS_ALLOW_ALL
+        value: "True"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_API_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: AI_MODEL
+        value: openai/gpt-oss-120b
